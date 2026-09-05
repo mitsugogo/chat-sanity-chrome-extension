@@ -1,16 +1,26 @@
 export type FilterCategory =
   | 'safe'
+  | 'backseat'
+  | 'blame'
+  | 'personal_attack'
+  | 'meta_conflict'
+  | 'complaint'
   | 'abuse'
   | 'instruction'
   | 'pigeon'
   | 'comparison'
   | 'concern'
   | 'spoiler'
-  | 'spam';
+  | 'spam'
+  | 'unknown';
 
-export type ConfigurableCategory = Exclude<FilterCategory, 'safe' | 'spam'>;
+export type ConfigurableCategory = Exclude<
+  FilterCategory,
+  'safe' | 'spam' | 'unknown'
+>;
 export type FilterAction = 'allow' | 'dim' | 'blur' | 'hide';
 export type PresetId = 'normal' | 'event' | 'peace';
+export type FilterMode = 'threshold' | 'allow' | 'dim' | 'blur' | 'hide';
 
 export interface ChatMessage {
   id: string;
@@ -21,6 +31,7 @@ export interface ChatMessage {
   isMember: boolean;
   isPaidMessage: boolean;
   timestamp: number;
+  authorExternalChannelId?: string;
 }
 
 export interface FilterResult {
@@ -40,6 +51,7 @@ export interface Thresholds {
 export interface CategorySettings {
   enabled: boolean;
   weight: number;
+  mode: FilterMode;
 }
 
 export interface PresetProfile {
@@ -47,6 +59,8 @@ export interface PresetProfile {
   thresholds: Thresholds;
   hideSpam: boolean;
 }
+
+export type LmResponseFormat = 'json_schema' | 'json_object' | 'text';
 
 export interface LmStudioSettings {
   enabled: boolean;
@@ -58,11 +72,15 @@ export interface LmStudioSettings {
   batchWindowMs: number;
   batchSize: number;
   timeoutMs: number;
+  requestTimeoutMs: number;
+  responseFormat: LmResponseFormat;
+  sessionLearning: boolean;
 }
 
 export interface SettingsV1 {
   schemaVersion: 1;
   enabled: boolean;
+  debugMode: boolean;
   activePreset: PresetId;
   profiles: Record<PresetId, PresetProfile>;
   blockedWords: string[];
@@ -91,18 +109,28 @@ export interface SessionSummary {
 export interface LmClassificationItem {
   id: string;
   text: string;
+  sameAuthorRecent?: string[];
+  recentRiskyMessages?: string[];
+  conflictLevel?: number;
 }
 
 export interface LmClassificationResult {
   id: string;
   category: FilterCategory;
-  score: number;
+  action?: 'allow' | 'blur';
+  confidence?: number;
+  /** Legacy LM Studio response field. New clients should return action/confidence. */
+  score?: number;
 }
 
 export type RuntimeMessage =
   | { type: 'session:get-summary'; tabId: number }
   | { type: 'session:update'; summary: SessionSummary }
   | { type: 'session:remove' }
+  | { type: 'debug:add'; entry: DiagnosticEntry }
+  | { type: 'debug:get' }
+  | { type: 'debug:clear' }
+  | { type: 'debug:clear-frame' }
   | { type: 'lm:list-models'; endpoint: string }
   | {
       type: 'lm:classify';
@@ -110,6 +138,7 @@ export type RuntimeMessage =
       model: string;
       items: LmClassificationItem[];
       timeoutMs: number;
+      responseFormat?: LmResponseFormat;
     };
 
 export type RuntimeResponse =
@@ -117,4 +146,5 @@ export type RuntimeResponse =
   | { ok: true; summary: SessionSummary }
   | { ok: true; models: string[] }
   | { ok: true; results: LmClassificationResult[] }
+  | { ok: true; entries: DiagnosticEntry[] }
   | { ok: false; error: string };

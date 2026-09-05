@@ -1,19 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { Logo } from '../../components/Logo';
 import { Switch } from '../../components/Switch';
-import { actionForScore, createFilterEngine } from '../../lib/filter/engine';
+import { mergeAiResult, createFilterEngine } from '../../lib/filter/engine';
 import { normalizeText } from '../../lib/filter/normalize';
 import {
   CATEGORY_LABELS,
+  CONFIGURABLE_CATEGORY_KEYS,
   DEFAULT_SETTINGS,
   PRESET_LABELS,
   cleanWords,
+  normalizeLmStudio,
 } from '../../lib/settings';
 import { loadSettings, saveSettings } from '../../lib/storage';
 import type {
   ConfigurableCategory,
   DiagnosticEntry,
+  FilterMode,
   PresetId,
   RuntimeMessage,
   RuntimeResponse,
@@ -21,6 +24,11 @@ import type {
 } from '../../lib/types';
 
 const CATEGORY_DESCRIPTIONS: Record<ConfigurableCategory, string> = {
+  backseat: '配信者や参加者への指示・指図',
+  blame: '失敗や状況の責任を特定人物へ押し付ける表現',
+  personal_attack: '能力・人格・適性への攻撃',
+  meta_conflict: '自治・コメント欄の喧嘩や荒れの話題',
+  complaint: '強い攻撃ではない進行・配信への不満',
   abuse: '暴言・罵倒・差別的表現など',
   instruction: '過度な指示・命令口調・支配的言動',
   pigeon: '別配信・別視点の情報持ち込み',
@@ -29,8 +37,21 @@ const CATEGORY_DESCRIPTIONS: Record<ConfigurableCategory, string> = {
   spoiler: '未視聴者への先の展開の明示',
 };
 
-const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS) as ConfigurableCategory[];
+const CATEGORY_KEYS = [...CONFIGURABLE_CATEGORY_KEYS] as ConfigurableCategory[];
 const PERMISSION_ORIGINS = ['http://127.0.0.1/*', 'http://localhost/*'];
+const ACTION_LABELS = {
+  allow: '表示',
+  dim: '薄く表示',
+  blur: 'ぼかし',
+  hide: '非表示',
+} as const;
+const MODE_LABELS: Record<FilterMode, string> = {
+  threshold: 'スコアに従う',
+  allow: '表示',
+  dim: '薄く表示',
+  blur: 'ぼかす',
+  hide: '非表示',
+};
 
 export default function App() {
   const [settings, setSettings] = useState<SettingsV1>(DEFAULT_SETTINGS);
@@ -45,6 +66,8 @@ export default function App() {
   );
   const [diagnostic, setDiagnostic] = useState<DiagnosticEntry | null>(null);
   const [testing, setTesting] = useState(false);
+  const [debugEntries, setDebugEntries] = useState<DiagnosticEntry[]>([]);
+  const [debugError, setDebugError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +78,36 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  const refreshDebugHistory = useCallback(async () => {
+    try {
+      const response = (await browser.runtime.sendMessage({
+        type: 'debug:get',
+      } satisfies RuntimeMessage)) as RuntimeResponse;
+      if (!response.ok || !('entries' in response)) {
+        throw new Error(
+          response.ok ? 'デバッグ履歴を取得できませんでした。' : response.error,
+        );
+      }
+      setDebugEntries(response.entries);
+      setDebugError('');
+    } catch (error) {
+      setDebugError(
+        error instanceof Error
+          ? error.message
+          : 'デバッグ履歴を取得できませんでした。',
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!settings.debugMode) return;
+    void refreshDebugHistory();
+    const interval = window.setInterval(() => {
+      void refreshDebugHistory();
+    }, 2_000);
+    return () => window.clearInterval(interval);
+  }, [refreshDebugHistory, settings.debugMode]);
 
   const profile = settings.profiles[settings.activePreset];
   const selectedModelOptions = useMemo(
@@ -135,7 +188,21 @@ export default function App() {
     const safeSettings = sanitizeSettings(settings);
     setSettings(safeSettings);
     await saveSettings(safeSettings);
+    if (!safeSettings.debugMode) {
+      await browser.runtime.sendMessage({
+        type: 'debug:clear',
+      } satisfies RuntimeMessage);
+      setDebugEntries([]);
+    }
     setSavedAt(new Date());
+  };
+
+  const clearDebugHistory = async () => {
+    await browser.runtime.sendMessage({
+      type: 'debug:clear',
+    } satisfies RuntimeMessage);
+    setDebugEntries([]);
+    setDebugError('');
   };
 
   const runDiagnostic = async () => {
@@ -150,7 +217,8 @@ export default function App() {
       isPaidMessage: false,
       timestamp: Date.now(),
     };
-    const base = createFilterEngine()(message, settings);
+    const diagnosticSettings = sanitizeSettings(settings);
+    const base = createFilterEngine()(message, diagnosticSettings);
     let entry: DiagnosticEntry = {
       id: message.id,
       text: testText,
@@ -162,31 +230,42 @@ export default function App() {
       timestamp: message.timestamp,
     };
 
-    if (base.needsAi && settings.lmStudio.model) {
+    if (base.needsAi) {
       try {
         const response = (await browser.runtime.sendMessage({
           type: 'lm:classify',
           endpoint: settings.lmStudio.endpoint,
           model: settings.lmStudio.model,
           items: [{ id: message.id, text: normalizeText(testText) }],
-          timeoutMs: Math.max(settings.lmStudio.timeoutMs * 4, 2_000),
+          timeoutMs: diagnosticSettings.lmStudio.requestTimeoutMs,
+          responseFormat: diagnosticSettings.lmStudio.responseFormat,
         } satisfies RuntimeMessage)) as RuntimeResponse;
-        if (response.ok && 'results' in response && response.results[0]) {
-          const ai = response.results[0];
-          entry = {
-            ...entry,
-            category: ai.category,
-            score: ai.score,
-            action: actionForScore(ai.score, profile.thresholds),
-            reasons: [`LM Studioによる${ai.category}判定`],
-            source: 'lm-studio',
-          };
+        if (!response.ok || !('results' in response) || !response.results[0]) {
+          throw new Error(
+            response.ok ? '分類結果を取得できませんでした' : response.error,
+          );
         }
-      } catch {
+        const merged = mergeAiResult(
+          base,
+          response.results[0],
+          diagnosticSettings,
+        );
+        entry = {
+          ...entry,
+          category: merged.categories[0] ?? 'safe',
+          score: merged.score,
+          action: merged.action,
+          reasons: merged.reasons,
+          source: 'lm-studio',
+        };
+      } catch (error) {
         entry = {
           ...entry,
           source: 'fallback',
-          reasons: [...entry.reasons, 'LM Studioへ接続できませんでした'],
+          reasons: [
+            ...entry.reasons,
+            `AI判定に失敗したためルール結果を表示: ${error instanceof Error ? error.message : '接続できませんでした'}`,
+          ],
         };
       }
     }
@@ -204,6 +283,7 @@ export default function App() {
           </a>
           <a href="#local-ai">ローカルAI</a>
           <a href="#diagnostic">診断</a>
+          <a href="#debug-history">デバッグ履歴</a>
         </nav>
         <div className="sidebar-footer">
           <span>設定はChrome同期に保存</span>
@@ -310,6 +390,21 @@ export default function App() {
                   label="連投スパムを抑える"
                 />
               </div>
+              <div className="spam-setting">
+                <span>
+                  <strong>デバッグモード</strong>
+                  <small>
+                    保存後、チャットにスコアとAI検閲中ラベルを表示します
+                  </small>
+                </span>
+                <Switch
+                  checked={settings.debugMode}
+                  onChange={(debugMode) =>
+                    setSettings((current) => ({ ...current, debugMode }))
+                  }
+                  label="デバッグモード"
+                />
+              </div>
             </section>
 
             <section className="panel">
@@ -317,6 +412,9 @@ export default function App() {
                 <div>
                   <h2>カテゴリ設定</h2>
                   <p>カテゴリごとの有効状態と判定の強さを調整します。</p>
+                  <p className="category-note">
+                    「非表示」は発言者のアイコンとIDを含む行全体をぼかします。
+                  </p>
                 </div>
               </div>
               <div
@@ -328,6 +426,7 @@ export default function App() {
                   <span>カテゴリ</span>
                   <span>有効</span>
                   <span>重み</span>
+                  <span>表示方法</span>
                   <span>説明</span>
                 </div>
                 {CATEGORY_KEYS.map((category) => {
@@ -368,6 +467,29 @@ export default function App() {
                           })
                         }
                       />
+                      <select
+                        value={value.mode}
+                        aria-label={`${CATEGORY_LABELS[category]}の表示方法`}
+                        onChange={(event) => {
+                          const mode = event.target.value as FilterMode;
+                          if (!(mode in MODE_LABELS)) return;
+                          updateProfile({
+                            ...profile,
+                            categories: {
+                              ...profile.categories,
+                              [category]: { ...value, mode },
+                            },
+                          });
+                        }}
+                      >
+                        {(Object.keys(MODE_LABELS) as FilterMode[]).map(
+                          (mode) => (
+                            <option key={mode} value={mode}>
+                              {MODE_LABELS[mode]}
+                            </option>
+                          ),
+                        )}
+                      </select>
                       <span>{CATEGORY_DESCRIPTIONS[category]}</span>
                     </div>
                   );
@@ -445,7 +567,7 @@ export default function App() {
                 className="secondary-button"
                 type="button"
                 disabled={connection === 'testing'}
-                onClick={() => void testConnection(true)}
+                onClick={() => void testConnection(false)}
               >
                 接続を確認
               </button>
@@ -455,13 +577,112 @@ export default function App() {
                 />
                 <span>{connectionMessage}</span>
               </div>
+              <label className="field">
+                <span>AI応答形式</span>
+                <select
+                  value={settings.lmStudio.responseFormat}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (
+                      value === 'json_schema' ||
+                      value === 'json_object' ||
+                      value === 'text'
+                    ) {
+                      setSettings((current) => ({
+                        ...current,
+                        lmStudio: {
+                          ...current.lmStudio,
+                          responseFormat: value,
+                        },
+                      }));
+                    }
+                  }}
+                >
+                  <option value="json_schema">JSON Schema（推奨）</option>
+                  <option value="json_object">JSON Object（互換）</option>
+                  <option value="text">テキストからJSONを検証</option>
+                </select>
+              </label>
+              <AiNumber
+                label="AI応答の待ち時間（秒）"
+                value={settings.lmStudio.requestTimeoutMs / 1000}
+                min={1}
+                max={60}
+                step={1}
+                onChange={(value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    lmStudio: {
+                      ...current.lmStudio,
+                      requestTimeoutMs: value * 1000,
+                    },
+                  }))
+                }
+              />
+              <AiNumber
+                label="1回に送る最大件数"
+                value={settings.lmStudio.batchSize}
+                min={1}
+                max={20}
+                step={1}
+                onChange={(value) =>
+                  setSettings((current) => ({
+                    ...current,
+                    lmStudio: { ...current.lmStudio, batchSize: value },
+                  }))
+                }
+              />
               <div className="ai-condition">
                 <strong>AIの使用条件</strong>
-                <label>
-                  <input type="radio" checked readOnly />
-                  ルールで判断が曖昧なコメントのみ
-                </label>
+                <p>
+                  ルールスコア0.35〜0.80の曖昧なコメントだけを対象にします。
+                </p>
+                <AiNumber
+                  label="AI対象の下限スコア"
+                  value={settings.lmStudio.uncertainMin}
+                  min={0.35}
+                  max={0.8}
+                  step={0.05}
+                  onChange={(value) =>
+                    setSettings((current) => ({
+                      ...current,
+                      lmStudio: { ...current.lmStudio, uncertainMin: value },
+                    }))
+                  }
+                />
+                <AiNumber
+                  label="AI対象の上限スコア"
+                  value={settings.lmStudio.uncertainMax}
+                  min={0.35}
+                  max={0.8}
+                  step={0.05}
+                  onChange={(value) =>
+                    setSettings((current) => ({
+                      ...current,
+                      lmStudio: { ...current.lmStudio, uncertainMax: value },
+                    }))
+                  }
+                />
+                <p>
+                  500msでルール結果を表示し、AIの応答が届けば更新します。遅い場合は件数を減らすか待ち時間を延ばしてください。形式エラーの場合は互換形式を試せます。
+                </p>
               </div>
+              <div className="setting-row">
+                <strong>閲覧中のAI判定を一時ルールに活用</strong>
+                <Switch
+                  label="閲覧中のAI判定を一時ルールに活用"
+                  checked={settings.lmStudio.sessionLearning}
+                  onChange={(sessionLearning) =>
+                    setSettings((current) => ({
+                      ...current,
+                      lmStudio: { ...current.lmStudio, sessionLearning },
+                    }))
+                  }
+                />
+              </div>
+              <p>
+                強い問題と判定された同文を再利用します。異なる3本文で一致し、文節単独でも同じカテゴリの高スコアをAIが返した文節だけを一時ルールへ昇格します。再読み込み・設定変更でリセットされ、保存しません。
+              </p>
               <p className="privacy-note">
                 コメントはローカル環境内だけで処理されます
               </p>
@@ -496,6 +717,14 @@ export default function App() {
           </div>
         </div>
 
+        <DebugHistoryPanel
+          enabled={settings.debugMode}
+          entries={debugEntries}
+          error={debugError}
+          onRefresh={() => void refreshDebugHistory()}
+          onClear={() => void clearDebugHistory()}
+        />
+
         <footer className="save-bar">
           <button type="button" onClick={() => void save()}>
             設定を保存
@@ -508,6 +737,36 @@ export default function App() {
         </footer>
       </main>
     </div>
+  );
+}
+
+function AiNumber({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
   );
 }
 
@@ -567,18 +826,7 @@ function WordList({
 }
 
 function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
-  const category =
-    entry.category === 'safe'
-      ? '安全'
-      : entry.category === 'spam'
-        ? 'スパム'
-        : CATEGORY_LABELS[entry.category];
-  const actions = {
-    allow: '表示',
-    dim: '薄く表示',
-    blur: 'ぼかし',
-    hide: '非表示',
-  } as const;
+  const category = categoryLabel(entry.category);
   return (
     <div className="diagnostic-result" aria-label="診断結果">
       <dl>
@@ -592,9 +840,17 @@ function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
         </div>
         <div>
           <dt>アクション</dt>
-          <dd>{actions[entry.action]}</dd>
+          <dd>{ACTION_LABELS[entry.action]}</dd>
         </div>
       </dl>
+      <p>
+        判定元:{' '}
+        {entry.source === 'rules'
+          ? 'ルール'
+          : entry.source === 'lm-studio'
+            ? 'ローカルAI'
+            : 'ルール（AI失敗）'}
+      </p>
       <strong>判定理由</strong>
       <ul>
         {entry.reasons.map((reason) => (
@@ -605,8 +861,96 @@ function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
   );
 }
 
+function DebugHistoryPanel({
+  enabled,
+  entries,
+  error,
+  onRefresh,
+  onClear,
+}: {
+  enabled: boolean;
+  entries: DiagnosticEntry[];
+  error: string;
+  onRefresh: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <section className="panel debug-history-panel" id="debug-history">
+      <div className="section-heading">
+        <div>
+          <h2>デバッグ履歴</h2>
+          <p>薄く表示・ぼかし・非表示になったコメントを最大200件表示します。</p>
+        </div>
+        <div className="debug-history-actions">
+          <button type="button" onClick={onRefresh} disabled={!enabled}>
+            更新
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={!enabled || entries.length === 0}
+          >
+            履歴を消去
+          </button>
+        </div>
+      </div>
+      {!enabled ? (
+        <p className="empty-diagnostic">
+          デバッグモードをONにして設定を保存すると記録を開始します。
+        </p>
+      ) : error ? (
+        <p className="debug-history-error" role="alert">
+          {error}
+        </p>
+      ) : entries.length === 0 ? (
+        <p className="empty-diagnostic">対応されたチャットはまだありません。</p>
+      ) : (
+        <ol className="debug-history-list" aria-label="対応されたチャット一覧">
+          {entries.map((entry, index) => (
+            <li key={`${entry.timestamp}-${entry.id}-${index}`}>
+              <div className="debug-history-meta">
+                <time dateTime={new Date(entry.timestamp).toISOString()}>
+                  {new Date(entry.timestamp).toLocaleTimeString('ja-JP', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                </time>
+                <strong>{ACTION_LABELS[entry.action]}</strong>
+                <span>{categoryLabel(entry.category)}</span>
+                <span>スコア {entry.score.toFixed(2)}</span>
+              </div>
+              <p className="debug-history-text">{entry.text}</p>
+              <p className="debug-history-reason">
+                {sourceLabel(entry.source)}: {entry.reasons.join('・')}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="privacy-note">
+        履歴は拡張のメモリだけに保持し、タブの再読み込み・終了またはデバッグOFFで消去します。ユーザー名は記録しません。
+      </p>
+    </section>
+  );
+}
+
+function categoryLabel(category: DiagnosticEntry['category']): string {
+  if (category === 'safe') return '安全';
+  if (category === 'spam') return 'スパム';
+  if (category === 'unknown') return '判定不能';
+  return CATEGORY_LABELS[category];
+}
+
+function sourceLabel(source: DiagnosticEntry['source']): string {
+  if (source === 'lm-studio') return 'ローカルAI';
+  if (source === 'fallback') return 'ルール（AI失敗）';
+  return 'ルール';
+}
+
 function sanitizeSettings(value: SettingsV1): SettingsV1 {
   const next = structuredClone(value);
+  next.lmStudio = normalizeLmStudio(next.lmStudio);
   next.blockedWords = cleanWords(next.blockedWords);
   next.allowedWords = cleanWords(next.allowedWords);
   for (const preset of Object.keys(next.profiles) as PresetId[]) {

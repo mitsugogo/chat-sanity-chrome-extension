@@ -14,18 +14,13 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
   filter: none;
 }
 
-.chatsanity-pending > :not(.chatsanity-placeholder) {
+.chatsanity-pending > :not(.chatsanity-placeholder):not(.chatsanity-ai-status) {
   display: none !important;
 }
 
-.chatsanity-hidden {
-  position: relative;
-  overflow: hidden;
-}
-
-.chatsanity-hidden > :not(.chatsanity-placeholder) {
-  opacity: 0.16 !important;
-  filter: blur(9px) !important;
+.chatsanity-hidden > :not(.chatsanity-debug-score):not(.chatsanity-ai-status) {
+  opacity: 0.45 !important;
+  filter: blur(5px) !important;
   pointer-events: none !important;
   user-select: none !important;
   transition:
@@ -33,11 +28,17 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
     opacity 140ms ease;
 }
 
-.chatsanity-hidden.chatsanity-revealed > :not(.chatsanity-placeholder) {
+.chatsanity-hidden.chatsanity-revealed
+  > :not(.chatsanity-debug-score):not(.chatsanity-ai-status) {
   opacity: 1 !important;
   filter: none !important;
   pointer-events: auto !important;
   user-select: auto !important;
+}
+
+.chatsanity-hidden #message {
+  cursor: pointer;
+  pointer-events: auto !important;
 }
 
 .chatsanity-placeholder {
@@ -59,27 +60,6 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
   text-align: left;
 }
 
-.chatsanity-hidden > .chatsanity-placeholder {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  right: 12px;
-  max-width: calc(100% - 24px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transform: translateY(-50%);
-}
-
-.chatsanity-hidden.chatsanity-revealed > .chatsanity-placeholder {
-  position: relative;
-  top: auto;
-  right: auto;
-  display: block;
-  margin-left: auto;
-  transform: none;
-}
-
 .chatsanity-placeholder:not(:disabled) {
   cursor: pointer;
 }
@@ -94,9 +74,33 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
   outline-offset: 2px;
 }
 
+.chatsanity-debug-score,
+.chatsanity-ai-status {
+  display: inline-block;
+  margin-left: 5px;
+  color: currentColor;
+  font:
+    500 9px/1.35 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  letter-spacing: 0.02em;
+  opacity: 0.42;
+  vertical-align: baseline;
+}
+
+.chatsanity-ai-status {
+  margin: 4px 12px;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 10px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chatsanity-blur #message,
-  .chatsanity-hidden > :not(.chatsanity-placeholder) {
+  .chatsanity-hidden
+    > :not(.chatsanity-debug-score):not(.chatsanity-ai-status) {
     transition: none;
   }
 }

@@ -1,0 +1,50 @@
+const CUSTOM_EMOJI = /:[a-zA-Z0-9_+-]+:/gu;
+const EMOJI = /\p{Extended_Pictographic}/gu;
+const PUNCTUATION_ONLY = /^[\s\p{P}\p{S}]+$/u;
+const LAUGHTER_ONLY = /^(?:w|ｗ|草|笑|ha|はは|アハ|あは)+[!！?？〜～ー]*$/iu;
+
+const SAFE_REACTIONS = new Set([
+  '草',
+  'www',
+  'ｗｗｗ',
+  'ナイス',
+  'ないす',
+  'gg',
+  'おつ',
+  'おつかれ',
+  'お疲れ様',
+  'かわいい',
+  'きた',
+  'よし',
+  'どんまい',
+  'がんばれ',
+  'がんばって',
+  '指示ナイス',
+]);
+
+/** High-volume reactions that do not need semantic classification. */
+export function isObviouslySafe(text: string): boolean {
+  const value = text.trim();
+  if (!value) return true;
+  if (SAFE_REACTIONS.has(value.toLocaleLowerCase('ja-JP'))) return true;
+  if (LAUGHTER_ONLY.test(value)) return true;
+  if (PUNCTUATION_ONLY.test(value)) return true;
+  if (isEmojiOnly(value)) return true;
+  // These common game reactions contain terms that would otherwise be risky candidates.
+  if (/^ししろん[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
+  if (/^おもしろい[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
+  if (/^帰れるかな[?？!！]*$/u.test(value)) return true;
+  if (/^いける(?:いける)?[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
+  if (/^クソ(?:鳥|ドリ)か[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
+  if (/^何してんの[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
+  return false;
+}
+
+function isEmojiOnly(value: string): boolean {
+  const withoutCustom = value.replace(CUSTOM_EMOJI, '').replace(/[\s]/gu, '');
+  if (!withoutCustom) return true;
+  const withoutEmoji = withoutCustom
+    .replace(EMOJI, '')
+    .replace(/[\uFE0F\u200D]/gu, '');
+  return withoutEmoji.length === 0;
+}

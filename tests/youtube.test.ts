@@ -41,6 +41,30 @@ describe('YouTube adapter', () => {
     expect(parseChatMessage(item)).toMatchObject({ isModerator: true });
   });
 
+  it('投稿者の外部IDとカスタム絵文字の代替文字を抽出する', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<yt-live-chat-text-message-renderer id="emoji">
+      <span id="author-name" data-author-id="UC-test">viewer</span>
+      <span id="message"><img alt=":mikoKusa:"></span>
+    </yt-live-chat-text-message-renderer>`;
+    const item = findChatItems(root)[0]!;
+
+    expect(parseChatMessage(item)).toMatchObject({
+      text: ':mikoKusa:',
+      authorExternalChannelId: 'UC-test',
+    });
+  });
+
+  it('本文とカスタム絵文字が混在しても順序を保つ', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<yt-live-chat-text-message-renderer id="mixed">
+      <span id="message">草<img alt=":mikoKusa:"> ナイス</span>
+    </yt-live-chat-text-message-renderer>`;
+    const item = findChatItems(root)[0]!;
+
+    expect(parseChatMessage(item)?.text).toBe('草 :mikoKusa: ナイス');
+  });
+
   it('後から追加された本文ノードから親のチャット要素を探索する', () => {
     const root = createChatItem();
     const message = root.querySelector('#message')!;
@@ -77,14 +101,12 @@ describe('YouTube adapter', () => {
     tracker.reset();
 
     expect(tracker.isCurrent(oldToken)).toBe(false);
-    expect(
-      tracker.begin(item, chatMessageSignature(message)),
-    ).not.toBeNull();
+    expect(tracker.begin(item, chatMessageSignature(message))).not.toBeNull();
   });
 });
 
 describe('YouTube renderer', () => {
-  it('判定中表示から控えめな非表示状態へ更新し原文を復元できる', () => {
+  it('判定中表示から行全体のぼかしへ更新し原文を一時表示できる', () => {
     const item = findChatItems(createChatItem())[0]!;
     renderPending(item);
     expect(item).toHaveClass('chatsanity-pending');
@@ -94,27 +116,67 @@ describe('YouTube renderer', () => {
 
     renderResult(item, {
       score: 0.95,
-      categories: ['instruction'],
+      categories: ['backseat'],
       reasons: ['命令口調'],
       action: 'hide',
       needsAi: false,
     });
-    const placeholder = item.querySelector<HTMLButtonElement>(
-      '.chatsanity-placeholder',
-    )!;
     expect(item).toHaveClass('chatsanity-hidden');
     expect(item.querySelector('#message')).toHaveTextContent(
       'そっちに行った方がいい',
     );
-    expect(placeholder).toHaveTextContent('非表示');
-    expect(placeholder).toHaveAttribute(
+    expect(
+      item.querySelector('.chatsanity-placeholder'),
+    ).not.toBeInTheDocument();
+    const message = item.querySelector<HTMLElement>('#message')!;
+    expect(message).toHaveAttribute(
       'aria-label',
-      '指示として非表示。クリックして原文と判定理由を表示',
+      '指示・指示厨として非表示。判定理由: 命令口調。クリックして原文を表示',
     );
-    expect(placeholder).toHaveAttribute('aria-expanded', 'false');
-    placeholder.click();
+    expect(message).toHaveAttribute(
+      'title',
+      '指示・指示厨: 命令口調。クリックして一時表示',
+    );
+    message.click();
     expect(item).toHaveClass('chatsanity-revealed');
-    expect(placeholder).toHaveTextContent('指示: 命令口調（再び隠す）');
-    expect(placeholder).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('デバッグ時だけAI検閲中ラベルと判定スコアを表示する', () => {
+    const item = findChatItems(createChatItem())[0]!;
+    renderPending(item, true);
+    expect(item.querySelector('.chatsanity-ai-status')).toHaveTextContent(
+      'AI検閲中',
+    );
+    renderResult(
+      item,
+      {
+        score: 0.72,
+        categories: ['backseat'],
+        reasons: ['行動を指示する表現'],
+        action: 'dim',
+        needsAi: false,
+      },
+      undefined,
+      true,
+    );
+    expect(item.querySelector('.chatsanity-ai-status')).not.toBeInTheDocument();
+    expect(item.querySelector('.chatsanity-debug-score')).toHaveTextContent(
+      '0.72',
+    );
+    expect(item.querySelector('.chatsanity-debug-score')).toHaveAttribute(
+      'aria-label',
+      '判定スコア 0.72',
+    );
+    renderResult(item, {
+      score: 0,
+      categories: ['safe'],
+      reasons: ['ルールに一致しませんでした'],
+      action: 'allow',
+      needsAi: false,
+    });
+    expect(
+      item.querySelector('.chatsanity-debug-score'),
+    ).not.toBeInTheDocument();
+    expect(item.querySelector('#message')).not.toHaveAttribute('aria-label');
   });
 });

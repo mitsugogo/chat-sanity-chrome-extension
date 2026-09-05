@@ -1,0 +1,91 @@
+[
+  {
+    "text": "ししろんｗ",
+    "expected": "safe",
+    "reason": "「しろ」の部分一致ではない"
+  },
+  {
+    "text": "おもしろいｗ",
+    "expected": "safe",
+    "reason": "「しろ」の部分一致ではない"
+  },
+  {
+    "text": "さっきもそうだった",
+    "expected": "safe",
+    "reason": "「きも」の部分一致ではない"
+  },
+  {
+    "text": "帰れるかな？",
+    "expected": "safe",
+    "reason": "「帰れ」の語幹ではなく質問"
+  },
+  {
+    "text": "いけるいける",
+    "expected": "safe",
+    "reason": "命令ではなく応援"
+  },
+  {
+    "text": "クソ鳥か？ｗ",
+    "expected": "safe",
+    "reason": "ゲーム内対象へのリアクション"
+  },
+  {
+    "text": "指示ナイス",
+    "expected": "safe",
+    "reason": "指示を肯定するリアクション"
+  },
+  {
+    "text": "何してんのｗｗｗ",
+    "expected": "safe",
+    "reason": "笑いを伴うリアクション"
+  },
+  {
+    "text": "草",
+    "expected": "safe",
+    "reason": "定型リアクション"
+  },
+  {
+    "text": "みこちは説明が下手なんだ",
+    "expected": "personal_attack"
+  },
+  {
+    "text": "リーダー仕事しろｗ",
+    "expected": "backseat"
+  },
+  {
+    "text": "みこちをリーダーにするのが悪い",
+    "expected": "blame"
+  },
+  {
+    "text": "しっかりしろリーダー",
+    "expected": "backseat"
+  },
+  {
+    "text": "少しは一緒に行動しろよ",
+    "expected": "backseat"
+  },
+  {
+    "text": "○○のせいだろ",
+    "expected": "blame"
+  },
+  {
+    "text": "○○ならもっと上手くやる",
+    "expected": "comparison"
+  },
+  {
+    "text": "指示厨黙ってくれ",
+    "expected": "meta_conflict"
+  },
+  {
+    "text": "コメ欄治安悪いな",
+    "expected": "meta_conflict"
+  },
+  {
+    "text": "テンポ悪い",
+    "expected": "complaint"
+  },
+  {
+    "text": "回復した方がいいかも",
+    "expected": "backseat"
+  }
+]

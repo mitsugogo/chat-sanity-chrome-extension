@@ -26,13 +26,19 @@ vi.mock('wxt/browser', () => ({
 }));
 
 import App from '../entrypoints/options/App';
+import { DEFAULT_SETTINGS } from '../lib/settings';
+import type { RuntimeMessage } from '../lib/types';
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.get.mockResolvedValue({});
   mocks.set.mockResolvedValue(undefined);
   mocks.request.mockResolvedValue(true);
-  mocks.sendMessage.mockResolvedValue({ ok: true, models: ['qwen3-8b'] });
+  mocks.sendMessage.mockImplementation(async (message: RuntimeMessage) =>
+    message.type === 'debug:get'
+      ? { ok: true, entries: [] }
+      : { ok: true, models: ['qwen3-8b'] },
+  );
 });
 
 describe('options', () => {
@@ -44,7 +50,7 @@ describe('options', () => {
     expect(
       screen.getByRole('table', { name: 'カテゴリ設定' }),
     ).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('指示の重み'), {
+    fireEvent.change(screen.getByLabelText('指示・指示厨の重み'), {
       target: { value: '0.9' },
     });
     fireEvent.click(screen.getByRole('button', { name: '設定を保存' }));
@@ -71,6 +77,70 @@ describe('options', () => {
     fireEvent.click(screen.getByRole('button', { name: '判定を試す' }));
     const result = await screen.findByLabelText('診断結果');
     expect(within(result).getByText('判定理由')).toBeInTheDocument();
-    expect(within(result).getByText('指示')).toBeInTheDocument();
+    expect(within(result).getByText('指示・指示厨')).toBeInTheDocument();
   });
+
+  it('デバッグモードの履歴と理由を表示して消去できる', async () => {
+    const stored = structuredClone(DEFAULT_SETTINGS);
+    stored.debugMode = true;
+    mocks.get.mockResolvedValue({ settings: stored });
+    mocks.sendMessage.mockImplementation(async (message: RuntimeMessage) => {
+      if (message.type === 'debug:get') {
+        return {
+          ok: true,
+          entries: [
+            {
+              id: 'debug-1',
+              text: '今すぐ回復しろ',
+              category: 'backseat',
+              score: 0.9,
+              action: 'hide',
+              reasons: ['命令口調'],
+              source: 'rules',
+              timestamp: 1000,
+            },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+    render(<App />);
+    expect(await screen.findByText('今すぐ回復しろ')).toBeInTheDocument();
+    expect(screen.getByText('ルール: 命令口調')).toBeInTheDocument();
+    expect(screen.getByText('スコア 0.90')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '履歴を消去' }));
+    await waitFor(() =>
+      expect(mocks.sendMessage).toHaveBeenCalledWith({ type: 'debug:clear' }),
+    );
+    expect(
+      screen.getByText('対応されたチャットはまだありません。'),
+    ).toBeInTheDocument();
+  });
+});
+
+it('接続確認だけでは権限を要求しない', async () => {
+  render(<App />);
+  await screen.findByRole('heading', { name: 'ローカルAI設定' });
+  fireEvent.click(screen.getByRole('button', { name: '接続を確認' }));
+  await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalled());
+  expect(mocks.request).not.toHaveBeenCalled();
+});
+it('AI失敗の診断はルール結果と失敗理由を表示する', async () => {
+  render(<App />);
+  await screen.findByRole('heading', { name: 'ローカルAI設定' });
+  fireEvent.click(screen.getByLabelText('LM Studioを使用する'));
+  await screen.findByText('接続済み');
+  mocks.sendMessage.mockResolvedValue({ ok: false, error: 'HTTP 500' });
+  fireEvent.change(screen.getByLabelText('サンプルコメント'), {
+    target: { value: '回復した方がいい' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: '判定を試す' }));
+  await screen.findByText(/ルール（AI失敗）/);
+  expect(screen.getByText(/HTTP 500/)).toBeInTheDocument();
+  expect(mocks.sendMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      timeoutMs: 10000,
+      responseFormat: 'json_schema',
+    }),
+  );
 });

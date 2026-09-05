@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { classifyWithLmStudio, listModels } from '../lib/lm-studio';
+import { DebugHistoryStore } from '../lib/debug-history';
 import {
   aggregateSessionSummaries,
   type LmStudioStatus,
@@ -85,6 +86,7 @@ async function getLmStudioStatus(): Promise<LmStudioStatus> {
 }
 
 export default defineBackground(() => {
+  const debugHistory = new DebugHistoryStore();
   void ensureSettings();
 
   browser.runtime.onInstalled.addListener(() => {
@@ -92,14 +94,46 @@ export default defineBackground(() => {
   });
 
   browser.tabs.onRemoved.addListener((tabId) => {
+    debugHistory.removeTab(tabId);
     void removeTabSessions(tabId);
   });
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.status === 'loading') void removeTabSessions(tabId);
+    if (changeInfo.status === 'loading') {
+      debugHistory.removeTab(tabId);
+      void removeTabSessions(tabId);
+    }
   });
 
   browser.runtime.onMessage.addListener((message: unknown, sender) => {
     const request = message as RuntimeMessage;
+    if (request.type === 'debug:get') {
+      return Promise.resolve<RuntimeResponse>({
+        ok: true,
+        entries: debugHistory.list(),
+      });
+    }
+
+    if (request.type === 'debug:clear') {
+      debugHistory.clear();
+      return Promise.resolve<RuntimeResponse>({ ok: true });
+    }
+
+    if (request.type === 'debug:add' || request.type === 'debug:clear-frame') {
+      const tabId = sender.tab?.id;
+      const frameId = sender.frameId;
+      if (typeof tabId !== 'number' || typeof frameId !== 'number') {
+        return Promise.resolve<RuntimeResponse>({
+          ok: false,
+          error: 'チャットフレームを特定できません。',
+        });
+      }
+      if (request.type === 'debug:add') {
+        debugHistory.add(tabId, frameId, request.entry);
+      } else {
+        debugHistory.removeFrame(tabId, frameId);
+      }
+      return Promise.resolve<RuntimeResponse>({ ok: true });
+    }
     if (request.type === 'session:update') {
       const tabId = sender.tab?.id;
       const frameId = sender.frameId;
@@ -122,6 +156,7 @@ export default defineBackground(() => {
       if (typeof tabId !== 'number' || typeof frameId !== 'number') {
         return Promise.resolve<RuntimeResponse>({ ok: true });
       }
+      debugHistory.removeFrame(tabId, frameId);
       return removeSession(tabId, frameId).then<RuntimeResponse>(() => ({
         ok: true,
       }));
@@ -153,6 +188,7 @@ export default defineBackground(() => {
         request.model,
         request.items,
         request.timeoutMs,
+        request.responseFormat,
       )
         .then<RuntimeResponse>((results) => ({ ok: true, results }))
         .catch<RuntimeResponse>((error: unknown) => ({

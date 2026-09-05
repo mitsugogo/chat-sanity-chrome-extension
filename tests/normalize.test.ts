@@ -11,4 +11,8 @@ describe('normalizeText', () => {
   it('過剰な連続文字と記号を圧縮する', () => {
     expect(normalizeText('ｗｗｗｗｗｗ！！！！')).toBe('ww!');
   });
+
+  it('日本語の語中に挿入された空白を除去する', () => {
+    expect(normalizeText('し ろ よ　今 日 は')).toBe('しろよ今日は');
+  });
 });

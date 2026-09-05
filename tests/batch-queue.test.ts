@@ -6,6 +6,44 @@ afterEach(() => {
 });
 
 describe('ClassificationBatchQueue', () => {
+  it('推論中は同時送信せず、上限超過はルールへ戻す', async () => {
+    vi.useFakeTimers();
+    let finish: (value: []) => void = () => undefined;
+    const classify = vi.fn(
+      () =>
+        new Promise<[]>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const queue = new ClassificationBatchQueue(classify, 200, 1);
+    const pending = [queue.enqueue({ id: '0', text: 'a' }).catch(() => null)];
+    for (let i = 1; i <= 100; i++)
+      pending.push(
+        queue.enqueue({ id: String(i), text: 'b' }).catch(() => null),
+      );
+    await expect(queue.enqueue({ id: 'overflow', text: 'c' })).rejects.toThrow(
+      '上限',
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(classify).toHaveBeenCalledOnce();
+    queue.dispose();
+    finish([]);
+    await Promise.all(pending);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(classify).toHaveBeenCalledOnce();
+    await expect(queue.enqueue({ id: 'new', text: 'd' })).rejects.toThrow();
+  });
+
+  it('待機タイマーを破棄したら送信しない', async () => {
+    vi.useFakeTimers();
+    const classify = vi.fn(async () => []);
+    const queue = new ClassificationBatchQueue(classify);
+    const result = queue.enqueue({ id: '1', text: 'a' }).catch(() => null);
+    queue.dispose();
+    await result;
+    await vi.advanceTimersByTimeAsync(200);
+    expect(classify).not.toHaveBeenCalled();
+  });
   it('指定時間内の項目を1回のバッチへまとめる', async () => {
     vi.useFakeTimers();
     const classify = vi.fn(async (items: Array<{ id: string; text: string }>) =>

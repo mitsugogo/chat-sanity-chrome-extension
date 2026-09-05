@@ -74,26 +74,69 @@ describe('filter engine', () => {
       createMessage('そっちに行った方がいい'),
       value,
     );
-    expect(result.categories).toContain('instruction');
+    expect(result.categories).toContain('backseat');
     expect(result.needsAi).toBe(true);
   });
 
-  it('制止を促す表現をぼかし対象の指示として判定する', () => {
+  it('制止を促す表現を低確信の指示候補として判定する', () => {
     const result = createFilterEngine()(
       createMessage('君は間違ってるからやめた方がいい'),
       settings(),
     );
-    expect(result).toMatchObject({ score: 0.85, action: 'blur' });
-    expect(result.categories).toContain('instruction');
+    expect(result).toMatchObject({ score: 0.42, action: 'allow' });
+    expect(result.categories).toContain('backseat');
+  });
+
+  it.each(['しろよ', 'はよ～～しろよ'])(
+    '箱ゲープリセットで「%s」を強い指示として検出する',
+    (text) => {
+      const result = createFilterEngine()(createMessage(text), settings());
+
+      expect(result.score).toBeGreaterThanOrEqual(0.82);
+      expect(result.categories).toContain('backseat');
+    },
+  );
+
+  it('コメント欄への注意はmeta_conflictを主カテゴリにする', () => {
+    const result = createFilterEngine()(
+      createMessage('指示厨黙ってくれ'),
+      settings(),
+    );
+    expect(result.categories[0]).toBe('meta_conflict');
+  });
+
+  it.each([
+    ['頭悪いな', 'personal_attack'],
+    ['○○に任せればよかった', 'comparison'],
+    ['やめてください', 'backseat'],
+  ] as const)('prefilter後も「%s」を%sへ渡す', (text, category) => {
+    expect(createFilterEngine()(createMessage(text), settings()).categories).toContain(
+      category,
+    );
+  });
+
+  it('prefilter候補だけでは危険理由を確定しない', () => {
+    const result = createFilterEngine()(
+      createMessage('バカンスに行きたい'),
+      settings(),
+    );
+    expect(result).toMatchObject({
+      categories: ['safe'],
+      action: 'allow',
+      reasons: ['ルールに一致しませんでした'],
+    });
   });
 
   it('同一ユーザーの同文連投をスパム判定する', () => {
     const evaluate = createFilterEngine();
     const value = settings();
-    evaluate(createMessage('ないす', { timestamp: 1_000 }), value);
-    evaluate(createMessage('ないす', { id: '2', timestamp: 1_500 }), value);
+    evaluate(createMessage('しっかりしろ', { timestamp: 1_000 }), value);
+    evaluate(
+      createMessage('しっかりしろ', { id: '2', timestamp: 1_500 }),
+      value,
+    );
     const result = evaluate(
-      createMessage('ないす', { id: '3', timestamp: 2_000 }),
+      createMessage('しっかりしろ', { id: '3', timestamp: 2_000 }),
       value,
     );
     expect(result.categories).toContain('spam');

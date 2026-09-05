@@ -8,10 +8,7 @@ export class ChatProcessingTracker {
   private revision = 0;
   private processed = new WeakMap<HTMLElement, string>();
 
-  begin(
-    element: HTMLElement,
-    signature: string,
-  ): ChatProcessingToken | null {
+  begin(element: HTMLElement, signature: string): ChatProcessingToken | null {
     if (this.processed.get(element) === signature) return null;
     this.processed.set(element, signature);
     return { element, signature, revision: this.revision };

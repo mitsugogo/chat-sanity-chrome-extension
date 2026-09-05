@@ -8,28 +8,45 @@ const MANAGED_CLASSES = [
   'chatsanity-hidden',
   'chatsanity-revealed',
 ];
+const REVEAL_HANDLERS = new WeakMap<HTMLElement, () => void>();
 
 export function resetRenderedItem(element: HTMLElement): void {
   element.classList.remove(...MANAGED_CLASSES);
   element.removeAttribute('data-chatsanity-action');
   element.querySelector('.chatsanity-placeholder')?.remove();
-  element.querySelector('#message')?.removeAttribute('title');
+  element.querySelector('.chatsanity-debug-score')?.remove();
+  element.querySelector('.chatsanity-ai-status')?.remove();
+  const message = element.querySelector('#message');
+  if (message) clearRevealHandler(message);
+  message?.removeAttribute('title');
+  message?.removeAttribute('aria-label');
 }
 
-export function renderPending(element: HTMLElement): void {
+export function renderPending(element: HTMLElement, debugMode = false): void {
   resetRenderedItem(element);
   element.classList.add('chatsanity-pending');
   element.setAttribute('data-chatsanity-action', 'pending');
   element.append(createPlaceholder('判定中…', false));
+  if (debugMode)
+    element.append(createDebugLabel('AI検閲中', 'chatsanity-ai-status'));
 }
 
 export function renderResult(
   element: HTMLElement,
   result: FilterResult,
   diagnostic?: DiagnosticEntry,
+  debugMode = false,
+  aiPending = false,
 ): void {
   resetRenderedItem(element);
   element.setAttribute('data-chatsanity-action', result.action);
+  if (debugMode) {
+    element.append(
+      createDebugLabel(result.score.toFixed(2), 'chatsanity-debug-score'),
+    );
+    if (aiPending)
+      element.append(createDebugLabel('AI検閲中', 'chatsanity-ai-status'));
+  }
   if (result.action === 'allow') return;
 
   if (result.action === 'dim') {
@@ -42,8 +59,9 @@ export function renderResult(
     const message = element.querySelector<HTMLElement>('#message');
     if (message) {
       message.title = 'クリックして一時表示';
-      const reveal = () => element.classList.toggle('chatsanity-revealed');
-      message.addEventListener('click', reveal, { once: true });
+      attachRevealHandler(message, () =>
+        element.classList.toggle('chatsanity-revealed'),
+      );
     }
     return;
   }
@@ -52,21 +70,48 @@ export function renderResult(
   const category = diagnostic?.category ?? result.categories[0] ?? 'safe';
   const categoryText = categoryLabel(category);
   const reasonText = result.reasons.join('・') || 'フィルタールールに一致';
-  const placeholder = createPlaceholder('非表示', true);
-  placeholder.title = `${categoryText}: ${reasonText}`;
-  placeholder.setAttribute(
+  const message = element.querySelector<HTMLElement>('#message');
+  if (message) {
+    message.title = `${categoryText}: ${reasonText}。クリックして一時表示`;
+    message.setAttribute(
+      'aria-label',
+      `${categoryText}として非表示。判定理由: ${reasonText}。クリックして原文を表示`,
+    );
+    attachRevealHandler(message, () =>
+      element.classList.add('chatsanity-revealed'),
+    );
+  }
+}
+
+function attachRevealHandler(
+  message: HTMLElement,
+  reveal: () => void,
+): void {
+  clearRevealHandler(message);
+  const handler = () => {
+    REVEAL_HANDLERS.delete(message);
+    reveal();
+  };
+  REVEAL_HANDLERS.set(message, handler);
+  message.addEventListener('click', handler, { once: true });
+}
+
+function clearRevealHandler(message: HTMLElement): void {
+  const handler = REVEAL_HANDLERS.get(message);
+  if (!handler) return;
+  message.removeEventListener('click', handler);
+  REVEAL_HANDLERS.delete(message);
+}
+
+function createDebugLabel(label: string, className: string): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = className;
+  span.textContent = label;
+  span.setAttribute(
     'aria-label',
-    `${categoryText}として非表示。クリックして原文と判定理由を表示`,
+    label === 'AI検閲中' ? label : `判定スコア ${label}`,
   );
-  placeholder.setAttribute('aria-expanded', 'false');
-  placeholder.addEventListener('click', () => {
-    const revealed = element.classList.toggle('chatsanity-revealed');
-    placeholder.textContent = revealed
-      ? `${categoryText}: ${reasonText}（再び隠す）`
-      : '非表示';
-    placeholder.setAttribute('aria-expanded', String(revealed));
-  });
-  element.append(placeholder);
+  return span;
 }
 
 function createPlaceholder(
@@ -84,5 +129,6 @@ function createPlaceholder(
 function categoryLabel(category: FilterCategory): string {
   if (category === 'spam') return 'スパム';
   if (category === 'safe') return 'コメント';
+  if (category === 'unknown') return '判定不能';
   return CATEGORY_LABELS[category];
 }
