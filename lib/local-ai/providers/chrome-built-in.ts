@@ -91,11 +91,15 @@ export async function prepareChromeBuiltInAi(
   onProgress?.(100);
 }
 
+const TIMEOUT_MESSAGE = 'Chrome内蔵AIの応答がタイムアウトしました。';
+const ABORTED_MESSAGE = 'Chrome内蔵AIの実行が中断されました。';
+
 export class ChromeBuiltInAiProvider implements LocalAiProvider {
   readonly id = 'chrome-built-in' as const;
   readonly maxBatchSize = CHROME_BUILT_IN_MAX_BATCH_SIZE;
   private baseSession: LanguageModelSessionLike | undefined;
   private baseSessionPromise: Promise<LanguageModelSessionLike> | undefined;
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly timeoutMs = 10_000) {}
 
@@ -115,11 +119,61 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
     if ((await this.getAvailability()) !== 'available') {
       throw new Error('Chrome内蔵AIはまだ利用可能ではありません。');
     }
+    return this.enqueue(() => this.classifyExclusive(items, options));
+  }
+
+  dispose(): void {
+    this.resetBaseSession();
+  }
+
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(work, work);
+    this.queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  private async classifyExclusive(
+    items: LmClassificationItem[],
+    options?: { signal?: AbortSignal },
+  ): Promise<LmClassificationResult[]> {
     const { signal, cleanup } = timeoutSignal(this.timeoutMs, options?.signal);
+    try {
+      try {
+        return await this.classifyWithSession(items, signal);
+      } catch (error) {
+        if (
+          !options?.signal?.aborted &&
+          !signal.aborted &&
+          isRetryableSessionError(error)
+        ) {
+          this.resetBaseSession();
+          return await this.classifyWithSession(items, signal);
+        }
+        throw error;
+      }
+    } catch (error) {
+      throw toChromeAiError(error, signal.aborted && !options?.signal?.aborted);
+    } finally {
+      cleanup();
+    }
+  }
+
+  private async classifyWithSession(
+    items: LmClassificationItem[],
+    signal: AbortSignal,
+  ): Promise<LmClassificationResult[]> {
     let session: LanguageModelSessionLike | undefined;
     try {
+      throwIfAborted(signal);
       const base = await this.ensureBaseSession();
-      session = await base.clone({ signal });
+      throwIfAborted(signal);
+      // clone({ signal }) は abort で session ごと destroy され、
+      // Prompt API が "signal is aborted without reason" を返す。
+      session = await base.clone();
+      throwIfAborted(signal);
       const raw = await session.prompt(createClassificationInput(items), {
         responseConstraint: createClassificationSchema(items.length),
         omitResponseConstraintInput: true,
@@ -141,11 +195,10 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
       );
     } finally {
       session?.destroy();
-      cleanup();
     }
   }
 
-  dispose(): void {
+  private resetBaseSession(): void {
     this.baseSession?.destroy();
     this.baseSession = undefined;
     const pending = this.baseSessionPromise;
@@ -179,10 +232,11 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
 
 function timeoutSignal(timeoutMs: number, external?: AbortSignal) {
   const controller = new AbortController();
+  const timeoutReason = new Error(TIMEOUT_MESSAGE);
   const abort = () => controller.abort(external?.reason);
   if (external?.aborted) abort();
   else external?.addEventListener('abort', abort, { once: true });
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
   return {
     signal: controller.signal,
     cleanup() {
@@ -190,4 +244,34 @@ function timeoutSignal(timeoutMs: number, external?: AbortSignal) {
       external?.removeEventListener('abort', abort);
     },
   };
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  throw new Error(TIMEOUT_MESSAGE);
+}
+
+function toChromeAiError(error: unknown, timedOut: boolean): Error {
+  if (timedOut) return new Error(TIMEOUT_MESSAGE);
+  if (isRetryableSessionError(error)) return new Error(ABORTED_MESSAGE);
+  return error instanceof Error
+    ? error
+    : new Error('Chrome内蔵AIの分類に失敗しました。');
+}
+
+function isRetryableSessionError(error: unknown): boolean {
+  if (
+    error instanceof DOMException &&
+    (error.name === 'AbortError' || error.name === 'InvalidStateError')
+  ) {
+    return true;
+  }
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'AbortError' || error.name === 'InvalidStateError') {
+    return true;
+  }
+  return /signal is aborted without reason|The request was cancelled|The request has been aborted|session has been destroyed/i.test(
+    error.message,
+  );
 }

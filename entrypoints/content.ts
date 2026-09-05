@@ -17,7 +17,10 @@ import { SessionRuleLearner } from '../lib/filter/session-learning';
 import { CATEGORY_LABELS } from '../lib/settings';
 import { isLocalAiConfigured } from '../lib/settings';
 import { CLASSIFIER_PROMPT_VERSION } from '../lib/local-ai/prompt';
-import { loadSettings, subscribeSettings } from '../lib/storage';
+import { loadSettings, saveSettings, subscribeSettings } from '../lib/storage';
+import { addHiddenUser } from '../lib/user-lists';
+import { AuthorRestrictionTracker } from '../lib/filter/author-restriction';
+import { isChannelId } from '../lib/youtube/current-user';
 import type {
   DiagnosticEntry,
   ChatMessage,
@@ -30,6 +33,7 @@ import type {
   FlowChatDebugInfo,
   FlowChatDecisionSource,
   AiRequestReason,
+  SettingsV1,
 } from '../lib/types';
 import {
   CHAT_ITEM_SELECTOR,
@@ -87,6 +91,7 @@ export default defineContentScript({
     const conflict = new ConflictScoreTracker();
     const authorHistory = new AuthorHistory();
     const recentRisk = new RecentRiskHistory();
+    const restriction = new AuthorRestrictionTracker();
     let auditSampler = new AuditSampler();
     let auditCooldownUntil = 0;
     const flowMetrics = new FlowChatMetrics();
@@ -216,10 +221,33 @@ export default defineContentScript({
         );
       }
       const category = entry.category;
-      conflict.observe(category, entry.score, message.timestamp);
       const author = message.authorExternalChannelId ?? message.author;
-      authorHistory.observe(author, normalized, message.timestamp, entry.score);
-      recentRisk.observe(normalized, message.timestamp, entry.score);
+      if (category !== 'hidden_user') {
+        conflict.observe(category, entry.score, message.timestamp);
+        authorHistory.observe(
+          author,
+          normalized,
+          message.timestamp,
+          entry.score,
+        );
+        recentRisk.observe(normalized, message.timestamp, entry.score);
+      }
+      const becameHabitual = restriction.observe(
+        author,
+        message.id,
+        entry.action,
+      );
+      const channelId = message.authorExternalChannelId;
+      if (becameHabitual && isChannelId(channelId) && !message.isSelf) {
+        const next = addHiddenUser(settings, {
+          channelId,
+          displayName: message.author,
+          addedAt: Date.now(),
+        });
+        if (next.hiddenUsers !== settings.hiddenUsers) {
+          void saveSettings(next).catch(() => undefined);
+        }
+      }
       if (entry.action === 'hide')
         updateSummary({ ...summary, hidden: summary.hidden + 1 });
       if (entry.action === 'blur')
@@ -258,7 +286,7 @@ export default defineContentScript({
       result.reasons = [
         ...result.reasons,
         ...auditReasons,
-        `${ai.providerId === 'chrome-built-in' ? 'Chrome内蔵AI' : 'LM Studio'}: ${category === 'safe' ? '安全' : category === 'spam' ? 'スパム' : category === 'unknown' ? '判定不能' : CATEGORY_LABELS[category]}`,
+        `${ai.providerId === 'chrome-built-in' ? 'Chrome内蔵AI' : 'LM Studio'}: ${category === 'safe' ? '安全' : category === 'spam' ? 'スパム' : category === 'hidden_user' ? '非表示ユーザー' : category === 'unknown' ? '判定不能' : CATEGORY_LABELS[category]}`,
       ];
       const diagnostic: DiagnosticEntry = {
         id: message.id,
@@ -343,6 +371,7 @@ export default defineContentScript({
         categoryConflict: conflict.getCategoryLevels(message.timestamp),
         sameAuthorRecent: authorHistory.recent(author, message.timestamp),
         recentRiskyMessages: recentRisk.recent(message.timestamp),
+        sessionBoost: restriction.boost(author),
       };
       let base: FilterResult;
       try {
@@ -640,37 +669,41 @@ export default defineContentScript({
     publishSummary();
 
     const unsubscribe = subscribeSettings((next) => {
-      flowBridge.deactivate();
-      flowMetrics.clear();
-      flowSignatures = new WeakMap<HTMLElement, string>();
-      processing.reset();
-      queue.dispose();
-      cache.clear();
-      learner.clear();
-      conflict.clear();
-      authorHistory.clear();
-      recentRisk.clear();
-      auditSampler.clear();
-      auditSampler = new AuditSampler();
-      auditCooldownUntil = 0;
-      void sendRuntimeMessage({ type: 'debug:clear-frame' }).catch(
-        () => undefined,
-      );
-      void sendRuntimeMessage({ type: 'flow:metrics-clear-frame' }).catch(
-        () => undefined,
-      );
+      const listsOnly = isUserListOnlyChange(settings, next);
       settings = next;
-      updateSummary({
-        active: true,
-        hidden: 0,
-        blurred: 0,
-        lmStudio: next.lmStudio.enabled ? 'unavailable' : 'disabled',
-        localAi: { activeProvider: 'rules', status: 'unavailable' },
-      });
-      lastProviderId = undefined;
-      queue = createQueue();
-      evaluate = createFilterEngine();
-      if (settings.flowChat.enabled) flowBridge.activate();
+      if (!listsOnly) {
+        flowBridge.deactivate();
+        flowMetrics.clear();
+        flowSignatures = new WeakMap<HTMLElement, string>();
+        queue.dispose();
+        cache.clear();
+        learner.clear();
+        conflict.clear();
+        authorHistory.clear();
+        recentRisk.clear();
+        restriction.clear();
+        auditSampler.clear();
+        auditSampler = new AuditSampler();
+        auditCooldownUntil = 0;
+        void sendRuntimeMessage({ type: 'debug:clear-frame' }).catch(
+          () => undefined,
+        );
+        void sendRuntimeMessage({ type: 'flow:metrics-clear-frame' }).catch(
+          () => undefined,
+        );
+        updateSummary({
+          active: true,
+          hidden: 0,
+          blurred: 0,
+          lmStudio: next.lmStudio.enabled ? 'unavailable' : 'disabled',
+          localAi: { activeProvider: 'rules', status: 'unavailable' },
+        });
+        lastProviderId = undefined;
+        queue = createQueue();
+        evaluate = createFilterEngine();
+        if (settings.flowChat.enabled) flowBridge.activate();
+      }
+      processing.reset();
       document
         .querySelectorAll<HTMLElement>(CHAT_ITEM_SELECTOR)
         .forEach((item) => {
@@ -689,6 +722,7 @@ export default defineContentScript({
       conflict.clear();
       authorHistory.clear();
       recentRisk.clear();
+      restriction.clear();
       auditSampler.clear();
       flowBridge.deactivate();
       flowMetrics.clear();
@@ -710,4 +744,24 @@ function sendRuntimeMessage(message: RuntimeMessage): Promise<unknown> {
   } catch (error) {
     return Promise.reject(error);
   }
+}
+
+function isUserListOnlyChange(previous: SettingsV1, next: SettingsV1): boolean {
+  const coreUnchanged =
+    JSON.stringify({
+      ...previous,
+      hiddenUsers: undefined,
+      whitelistedUsers: undefined,
+    }) ===
+    JSON.stringify({
+      ...next,
+      hiddenUsers: undefined,
+      whitelistedUsers: undefined,
+    });
+  if (!coreUnchanged) return false;
+  return (
+    JSON.stringify(previous.hiddenUsers) !== JSON.stringify(next.hiddenUsers) ||
+    JSON.stringify(previous.whitelistedUsers) !==
+      JSON.stringify(next.whitelistedUsers)
+  );
 }

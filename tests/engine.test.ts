@@ -34,6 +34,70 @@ describe('actionForScore', () => {
 });
 
 describe('filter engine', () => {
+  it('自分の投稿は0.00で許可する', () => {
+    const result = createFilterEngine()(
+      createMessage('死ね', {
+        isSelf: true,
+        authorExternalChannelId: 'UC-self',
+      }),
+      settings(),
+    );
+    expect(result).toMatchObject({
+      score: 0,
+      action: 'allow',
+      ruleDisposition: 'explicit-safe',
+    });
+    expect(result.reasons).toContain('自分の投稿');
+  });
+
+  it('ホワイトリストのユーザーは0.00で許可する', () => {
+    const value = settings();
+    value.whitelistedUsers = [
+      { channelId: 'UC-friend', displayName: 'friend', addedAt: 1 },
+    ];
+    const result = createFilterEngine()(
+      createMessage('死ね', { authorExternalChannelId: 'UC-friend' }),
+      value,
+    );
+    expect(result).toMatchObject({
+      score: 0,
+      action: 'allow',
+      ruleDisposition: 'explicit-safe',
+    });
+    expect(result.reasons).toContain('ホワイトリストのユーザー');
+  });
+
+  it('非表示ユーザーは本文に関係なく非表示にする', () => {
+    const value = settings();
+    value.hiddenUsers = [
+      { channelId: 'UC-bad', displayName: '常習くん', addedAt: 1 },
+    ];
+    const result = createFilterEngine()(
+      createMessage('こんにちは', { authorExternalChannelId: 'UC-bad' }),
+      value,
+    );
+    expect(result).toMatchObject({
+      score: 0.95,
+      action: 'hide',
+      categories: ['hidden_user'],
+      needsAi: false,
+    });
+  });
+
+  it('同一セッションの繰り返し加点で非表示側へ倒す', () => {
+    const result = createFilterEngine()(
+      createMessage('回復した方がいい'),
+      settings(),
+      null,
+      { sessionBoost: 0.6 },
+    );
+    expect(result.score).toBeGreaterThanOrEqual(0.9);
+    expect(result.action).toBe('hide');
+    expect(
+      result.reasons.some((reason) => reason.includes('同一セッション')),
+    ).toBe(true);
+  });
+
   it('配信者とモデレーターを常に許可する', () => {
     const evaluate = createFilterEngine();
     expect(
@@ -80,6 +144,38 @@ describe('filter engine', () => {
     );
     expect(result.categories).toContain('backseat');
     expect(result.needsAi).toBe(true);
+  });
+
+  it('メンバーシップスタンプだけの投稿は0.00で許可する', () => {
+    const value = settings();
+    value.blockedWords = ['しろ'];
+    value.lmStudio.enabled = true;
+    const result = createFilterEngine()(
+      createMessage(':しろ:', { isStampOnly: true }),
+      value,
+    );
+    expect(result).toMatchObject({
+      score: 0,
+      action: 'allow',
+      categories: ['safe'],
+      ruleDisposition: 'explicit-safe',
+      needsAi: false,
+    });
+    expect(result.reasons).toContain('メンバーシップスタンプのみ');
+  });
+
+  it('日本語カスタム絵文字だけの投稿は明らかなリアクションとして許可する', () => {
+    const result = createFilterEngine()(
+      createMessage(':みこ草: :あくあ泣き:'),
+      settings(),
+    );
+    expect(result).toMatchObject({
+      score: 0,
+      action: 'allow',
+      categories: ['safe'],
+      ruleDisposition: 'explicit-safe',
+      needsAi: false,
+    });
   });
 
   it('制止を促す表現を低確信の指示候補として判定する', () => {

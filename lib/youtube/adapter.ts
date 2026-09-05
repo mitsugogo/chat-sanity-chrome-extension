@@ -1,4 +1,10 @@
 import type { ChatMessage } from '../types';
+import {
+  detectCurrentUser,
+  isSelfChatElement,
+  readElementData,
+  readStringProperty,
+} from './current-user';
 
 export const CHAT_ITEM_SELECTOR = [
   'yt-live-chat-text-message-renderer',
@@ -33,14 +39,16 @@ export function chatMessageSignature(message: ChatMessage): string {
     message.isModerator,
     message.isMember,
     message.isPaidMessage,
+    Boolean(message.isStampOnly),
+    Boolean(message.isSelf),
   ]);
 }
 
 export function parseChatMessage(element: HTMLElement): ChatMessage | null {
   const messageNode = element.querySelector<HTMLElement>('#message');
   const authorNode = element.querySelector<HTMLElement>('#author-name');
-  const text = extractMessageText(messageNode);
-  if (!text) return null;
+  const { text, isStampOnly } = extractMessageContent(messageNode);
+  if (!text && !isStampOnly) return null;
 
   const author = authorNode?.textContent?.trim() ?? '';
   const badges = element.querySelector('#chat-badges');
@@ -48,12 +56,20 @@ export function parseChatMessage(element: HTMLElement): ChatMessage | null {
     element.getAttribute('id') ||
     element.getAttribute('data-id') ||
     `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const authorExternalChannelId = firstAttribute(
+  const authorExternalChannelId =
+    firstAttribute(
+      element,
+      authorNode,
+      'data-author-id',
+      'data-channel-id',
+      'data-author-external-channel-id',
+    ) ??
+    readStringProperty(readElementData(element), 'authorExternalChannelId');
+  const currentUser = detectCurrentUser(element.ownerDocument ?? document);
+  const isSelf = isSelfChatElement(
     element,
-    authorNode,
-    'data-author-id',
-    'data-channel-id',
-    'data-author-external-channel-id',
+    authorExternalChannelId,
+    currentUser,
   );
 
   return {
@@ -71,23 +87,32 @@ export function parseChatMessage(element: HTMLElement): ChatMessage | null {
       Boolean(badges?.querySelector('[type="member"]')),
     isPaidMessage: element.matches('yt-live-chat-paid-message-renderer'),
     timestamp: Date.now(),
+    ...(isStampOnly ? { isStampOnly: true } : {}),
+    ...(isSelf ? { isSelf: true } : {}),
     ...(authorExternalChannelId ? { authorExternalChannelId } : {}),
   };
 }
 
-function extractMessageText(messageNode: HTMLElement | null): string {
-  if (!messageNode) return '';
+function extractMessageContent(messageNode: HTMLElement | null): {
+  text: string;
+  isStampOnly: boolean;
+} {
+  if (!messageNode) return { text: '', isStampOnly: false };
   const text = messageNode.textContent?.trim() ?? '';
-  const images = messageNode.querySelectorAll<HTMLImageElement>('img[alt]');
-  if (images.length === 0) return text;
+  const images = messageNode.querySelectorAll<HTMLImageElement>('img');
+  if (images.length === 0) return { text, isStampOnly: false };
 
-  // Custom emoji nodes often have no textContent. Walk text and alt labels in
-  // DOM order so mixed messages keep both their words and emoji tokens.
+  // Custom emoji / membership stamp nodes often have no textContent.
+  // Walk text and alt labels in DOM order so mixed messages keep both.
   const parts: string[] = [];
+  let hasText = false;
   const visit = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) {
       const value = node.textContent?.trim();
-      if (value) parts.push(value);
+      if (value) {
+        hasText = true;
+        parts.push(value);
+      }
       return;
     }
     if (node instanceof HTMLImageElement) {
@@ -98,7 +123,10 @@ function extractMessageText(messageNode: HTMLElement | null): string {
     node.childNodes.forEach(visit);
   };
   visit(messageNode);
-  return parts.join(' ').trim();
+  return {
+    text: parts.join(' ').trim(),
+    isStampOnly: !hasText,
+  };
 }
 
 function firstAttribute(

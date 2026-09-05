@@ -125,6 +125,7 @@ function createPlaceholder(
 
 function categoryLabel(category: FilterCategory): string {
   if (category === 'spam') return 'スパム';
+  if (category === 'hidden_user') return '非表示ユーザー';
   if (category === 'safe') return 'コメント';
   if (category === 'unknown') return '判定不能';
   return CATEGORY_LABELS[category];

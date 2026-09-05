@@ -7,7 +7,13 @@ import type {
   LmClassificationResult,
   SettingsV1,
 } from '../types';
-import { CATEGORY_LABELS, isLocalAiConfigured } from '../settings';
+import {
+  CATEGORY_LABELS,
+  isConfigurableCategory,
+  isLocalAiConfigured,
+} from '../settings';
+import { isHiddenUser, isWhitelistedUser } from '../user-lists';
+import { HIDDEN_USER_SCORE } from './author-restriction';
 import { normalizeText } from './normalize';
 import { isObviouslySafe } from './obvious-safe';
 import { prefilter } from './prefilter';
@@ -22,6 +28,7 @@ export interface FilterContext {
   recentRiskyMessages?: string[];
   /** Optional stream participant names; never forwarded to a local AI provider. */
   targetNames?: string[];
+  sessionBoost?: number;
 }
 
 export function actionForScore(
@@ -46,7 +53,33 @@ export function createFilterEngine() {
     const profile = settings.profiles[settings.activePreset];
     const text = normalizeText(message.text);
 
-    if (!settings.enabled || message.isOwner || message.isModerator || !text) {
+    if (!settings.enabled || message.isOwner || message.isModerator) {
+      return result(0, [], ['フィルター対象外'], 'allow', false, 'excluded');
+    }
+
+    if (message.isSelf || isWhitelistedUser(settings, message)) {
+      return result(
+        0,
+        ['safe'],
+        [message.isSelf ? '自分の投稿' : 'ホワイトリストのユーザー'],
+        'allow',
+        false,
+        'explicit-safe',
+      );
+    }
+
+    if (message.isStampOnly) {
+      return result(
+        0,
+        ['safe'],
+        ['メンバーシップスタンプのみ'],
+        'allow',
+        false,
+        'explicit-safe',
+      );
+    }
+
+    if (!text) {
       return result(0, [], ['フィルター対象外'], 'allow', false, 'excluded');
     }
 
@@ -82,6 +115,17 @@ export function createFilterEngine() {
       );
     }
 
+    if (isHiddenUser(settings, message)) {
+      return result(
+        HIDDEN_USER_SCORE,
+        ['hidden_user'],
+        ['非表示ユーザーに登録済み'],
+        'hide',
+        false,
+        'matched',
+      );
+    }
+
     if (isObviouslySafe(text)) {
       return result(
         0,
@@ -101,7 +145,9 @@ export function createFilterEngine() {
       learned &&
       learned.category !== 'safe' &&
       learned.category !== 'spam' &&
-      learned.category !== 'unknown'
+      learned.category !== 'unknown' &&
+      learned.category !== 'hidden_user' &&
+      isConfigurableCategory(learned.category)
     ) {
       ruleMatches.push({
         category: learned.category,
@@ -177,6 +223,7 @@ export function createFilterEngine() {
       }
     }
 
+    score = applySessionBoost(score, context?.sessionBoost, reasons, features);
     score = clamp(score);
     const action = actionForResult(score, categories, profile);
     const needsAi =
@@ -234,17 +281,20 @@ export function mergeAiResult(
       needsAi: false,
       reasons: [...base.reasons, 'ローカルAIが判定不能を返しました'],
     };
+  const categorySettings = isConfigurableCategory(ai.category)
+    ? profile.categories[ai.category]
+    : undefined;
   if (
     ai.category === 'spam'
       ? !profile.hideSpam
-      : ai.category !== 'safe' && !profile.categories[ai.category].enabled
+      : ai.category !== 'safe' && categorySettings && !categorySettings.enabled
   ) {
     return { ...base, needsAi: false };
   }
   const weight =
-    ai.category === 'safe' || ai.category === 'spam'
+    ai.category === 'safe' || ai.category === 'spam' || !categorySettings
       ? 1
-      : profile.categories[ai.category].weight;
+      : categorySettings.weight;
   const aiScore = scoreFromAi(ai);
   if (aiScore === null) return { ...base, needsAi: false };
   let score = clamp(
@@ -260,7 +310,14 @@ export function mergeAiResult(
     `ローカルAIによる${categoryLabel(ai.category)}判定`,
   ];
   const adjusted = applyContextModifier(score, [ai.category], context, reasons);
-  score = clamp(adjusted.score);
+  const features = [...(base.features ?? []), 'llm-classification'];
+  score = applySessionBoost(
+    adjusted.score,
+    context?.sessionBoost,
+    reasons,
+    features,
+  );
+  score = clamp(score);
   return {
     score,
     categories: [ai.category],
@@ -279,7 +336,7 @@ export function mergeAiResult(
         (id) => !(base.ruleIds ?? []).includes(id),
       ),
     ],
-    features: [...(base.features ?? []), 'llm-classification'],
+    features,
     contextAdjustment: (base.contextAdjustment ?? 0) + adjusted.adjustment,
   };
 }
@@ -370,9 +427,27 @@ function applySafeContextModifier(
   return { score: next, adjustment: next - initialScore };
 }
 
+function applySessionBoost(
+  score: number,
+  boost: number | undefined,
+  reasons: string[],
+  features: string[],
+): number {
+  if (!boost || boost <= 0) return score;
+  const next = clamp(score + boost);
+  if (next > score) {
+    const reason = `同一セッションの繰り返しにより+${boost.toFixed(2)}`;
+    if (!reasons.includes(reason)) reasons.push(reason);
+    if (!features.includes('session-author-restriction'))
+      features.push('session-author-restriction');
+  }
+  return next;
+}
+
 function categoryLabel(category: FilterCategory): string {
   if (category === 'safe') return '安全';
   if (category === 'spam') return 'スパム';
+  if (category === 'hidden_user') return '非表示ユーザー';
   if (category === 'unknown') return '判定不能';
   return CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? category;
 }
@@ -382,13 +457,12 @@ function actionForResult(
   categories: FilterResult['categories'],
   profile: SettingsV1['profiles'][SettingsV1['activePreset']],
 ): FilterAction {
+  if (categories.includes('hidden_user')) return 'hide';
   if (categories.includes('spam'))
     return actionForScore(score, profile.thresholds);
-  const category = categories.find(
-    (value) => value !== 'safe' && value !== 'spam' && value !== 'unknown',
-  );
+  const category = categories.find((value) => isConfigurableCategory(value));
   if (category) {
-    const mode = profile.categories[category]?.mode;
+    const mode = profile.categories[category].mode;
     if (mode && mode !== 'threshold') return mode;
   }
   return actionForScore(score, profile.thresholds);

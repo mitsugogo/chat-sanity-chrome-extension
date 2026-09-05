@@ -31,6 +31,13 @@ describe('YouTube adapter', () => {
     });
   });
 
+  it('自分の投稿をisSelfとして抽出する', () => {
+    const root = createChatItem();
+    const item = findChatItems(root)[0]!;
+    item.setAttribute('is-highlighted', '');
+    expect(parseChatMessage(item)?.isSelf).toBe(true);
+  });
+
   it('YouTubeのバッジ属性を判別する', () => {
     const root = createChatItem();
     const item = findChatItems(root)[0]!;
@@ -53,6 +60,45 @@ describe('YouTube adapter', () => {
       text: ':mikoKusa:',
       authorExternalChannelId: 'UC-test',
     });
+  });
+
+  it('メンバーシップスタンプだけの投稿をisStampOnlyとして抽出する', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<yt-live-chat-text-message-renderer id="stamp">
+      <span id="author-name">viewer</span>
+      <span id="message"><img alt=":みこ草:"><img alt=":みこ草:"></span>
+    </yt-live-chat-text-message-renderer>`;
+    const item = findChatItems(root)[0]!;
+
+    expect(parseChatMessage(item)).toMatchObject({
+      text: ':みこ草: :みこ草:',
+      isStampOnly: true,
+    });
+  });
+
+  it('altのないスタンプだけの投稿も抽出する', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<yt-live-chat-text-message-renderer id="empty-stamp">
+      <span id="author-name">viewer</span>
+      <span id="message"><img alt=""></span>
+    </yt-live-chat-text-message-renderer>`;
+    const item = findChatItems(root)[0]!;
+
+    expect(parseChatMessage(item)).toMatchObject({
+      text: '',
+      isStampOnly: true,
+    });
+  });
+
+  it('本文とスタンプが混在する場合はisStampOnlyにしない', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<yt-live-chat-text-message-renderer id="mixed-stamp">
+      <span id="message">草<img alt=":みこ草:"></span>
+    </yt-live-chat-text-message-renderer>`;
+    const item = findChatItems(root)[0]!;
+
+    expect(parseChatMessage(item)?.isStampOnly).toBeUndefined();
+    expect(parseChatMessage(item)?.text).toBe('草 :みこ草:');
   });
 
   it('本文とカスタム絵文字が混在しても順序を保つ', () => {

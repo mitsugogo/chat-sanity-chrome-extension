@@ -12,11 +12,12 @@ export type FilterCategory =
   | 'concern'
   | 'spoiler'
   | 'spam'
+  | 'hidden_user'
   | 'unknown';
 
 export type ConfigurableCategory = Exclude<
   FilterCategory,
-  'safe' | 'spam' | 'unknown'
+  'safe' | 'spam' | 'hidden_user' | 'unknown'
 >;
 export type FilterAction = 'allow' | 'dim' | 'blur' | 'hide';
 export type RuleDisposition =
@@ -68,8 +69,16 @@ export interface ChatMessage {
   isModerator: boolean;
   isMember: boolean;
   isPaidMessage: boolean;
+  isStampOnly?: boolean;
+  isSelf?: boolean;
   timestamp: number;
   authorExternalChannelId?: string;
+}
+
+export interface TrackedUser {
+  channelId: string;
+  displayName: string;
+  addedAt: number;
 }
 
 export interface FilterResult {
@@ -143,6 +152,8 @@ export interface SettingsV1 {
   profiles: Record<PresetId, PresetProfile>;
   blockedWords: string[];
   allowedWords: string[];
+  hiddenUsers: TrackedUser[];
+  whitelistedUsers: TrackedUser[];
   localAiMode: LocalAiMode;
   chromeBuiltIn: {
     enabled: boolean;

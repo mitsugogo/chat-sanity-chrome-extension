@@ -29,6 +29,28 @@ describe('AI settings migration', () => {
       customThreshold: 0.75,
       useLlmFastPath: false,
     });
+    expect(settings.hiddenUsers).toEqual([]);
+    expect(settings.whitelistedUsers).toEqual([]);
+  });
+
+  it('非表示ユーザーとホワイトリストを補完し重複時はホワイトリストを優先する', () => {
+    const settings = normalizeSettings({
+      schemaVersion: 1,
+      hiddenUsers: [
+        { channelId: 'UC-dup', displayName: 'hidden', addedAt: 1 },
+        { channelId: 'UC-bad', displayName: '常習くん', addedAt: 2 },
+        { channelId: 'UC-dup', displayName: 'again', addedAt: 3 },
+      ],
+      whitelistedUsers: [
+        { channelId: 'UC-dup', displayName: 'friend', addedAt: 4 },
+      ],
+    });
+    expect(settings.whitelistedUsers).toEqual([
+      { channelId: 'UC-dup', displayName: 'friend', addedAt: 4 },
+    ]);
+    expect(settings.hiddenUsers).toEqual([
+      { channelId: 'UC-bad', displayName: '常習くん', addedAt: 2 },
+    ]);
   });
 
   it('Local AIの不正なmodeとChrome設定を安全な既定値へ戻す', () => {

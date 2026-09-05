@@ -93,15 +93,12 @@ describe('options', () => {
       screen.getByLabelText('Flow Chat連携を有効にする'),
     ).not.toBeChecked();
     expect(screen.getByLabelText('デバッグモード')).not.toBeChecked();
-    const lmStudioSwitch = screen.getByLabelText('LM Studioを使用する');
-    expect(lmStudioSwitch).not.toBeChecked();
+    expect(screen.getByLabelText('LM Studio')).not.toBeChecked();
     expect(screen.queryByLabelText('エンドポイント')).not.toBeInTheDocument();
-    expect(
-      screen.queryByLabelText('未判定コメントをときどきAIで再確認'),
-    ).not.toBeInTheDocument();
-    fireEvent.click(lmStudioSwitch);
+    expect(screen.queryByLabelText('モデル')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('AI応答形式')).not.toBeInTheDocument();
     const auditSwitch =
-      await screen.findByLabelText('未判定コメントをときどきAIで再確認');
+      screen.getByLabelText('未判定コメントをときどきAIで再確認');
     expect(auditSwitch).toBeChecked();
     fireEvent.click(auditSwitch);
     fireEvent.change(screen.getByLabelText('指示・指示厨の重み'), {
@@ -122,7 +119,7 @@ describe('options', () => {
   it('ユーザー操作からローカル権限を要求してモデルを取得する', async () => {
     render(<App />);
     await screen.findByRole('heading', { name: 'ローカルAI設定' });
-    fireEvent.click(screen.getByLabelText('LM Studioを使用する'));
+    fireEvent.click(screen.getByLabelText('LM Studio'));
     await waitFor(() => expect(mocks.request).toHaveBeenCalledOnce());
     await waitFor(() =>
       expect(screen.getByText('接続済み')).toBeInTheDocument(),
@@ -181,6 +178,7 @@ describe('options', () => {
 
 it('接続確認だけでは権限を要求しない', async () => {
   const stored = structuredClone(DEFAULT_SETTINGS);
+  stored.localAiMode = 'lm-studio';
   stored.lmStudio.enabled = true;
   mocks.get.mockResolvedValue({ settings: stored });
   render(<App />);
@@ -192,7 +190,7 @@ it('接続確認だけでは権限を要求しない', async () => {
 it('AI失敗の診断はルール結果と失敗理由を表示する', async () => {
   render(<App />);
   await screen.findByRole('heading', { name: 'ローカルAI設定' });
-  fireEvent.click(screen.getByLabelText('LM Studioを使用する'));
+  fireEvent.click(screen.getByLabelText('LM Studio'));
   await screen.findByText('接続済み');
   mocks.sendMessage.mockResolvedValue({ ok: false, error: 'HTTP 500' });
   fireEvent.change(screen.getByLabelText('サンプルコメント'), {
@@ -207,4 +205,82 @@ it('AI失敗の診断はルール結果と失敗理由を表示する', async ()
       items: [expect.objectContaining({ text: '回復した方がいい' })],
     }),
   );
+});
+
+it('Chrome内蔵AIではLM Studio専用項目を出さず共通設定だけ出す', async () => {
+  render(<App />);
+  await screen.findByRole('heading', { name: 'ローカルAI設定' });
+  fireEvent.click(screen.getByLabelText('Chrome 内蔵AI'));
+  expect(screen.getByLabelText('Chrome内蔵AIの状態')).toBeInTheDocument();
+  expect(screen.queryByLabelText('エンドポイント')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('モデル')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('AI応答形式')).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: '接続を確認' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByLabelText('AI応答の待ち時間（秒）')).toBeInTheDocument();
+  expect(screen.getByLabelText('1回に送る最大件数')).toBeInTheDocument();
+  expect(
+    screen.getByLabelText('未判定コメントをときどきAIで再確認'),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByText(/形式エラーの場合は互換形式を試せます/),
+  ).not.toBeInTheDocument();
+});
+
+it('LM StudioからChrome内蔵AIへ切り替えると接続設定を隠す', async () => {
+  render(<App />);
+  await screen.findByRole('heading', { name: 'ローカルAI設定' });
+  fireEvent.click(screen.getByLabelText('LM Studio'));
+  expect(await screen.findByLabelText('エンドポイント')).toBeInTheDocument();
+  expect(screen.getByLabelText('モデル')).toBeInTheDocument();
+  expect(screen.getByLabelText('AI応答形式')).toBeInTheDocument();
+  expect(screen.queryByLabelText('Chrome内蔵AIの状態')).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/形式エラーの場合は互換形式を試せます/),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText('Chrome 内蔵AI'));
+  expect(screen.queryByLabelText('エンドポイント')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('モデル')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Chrome内蔵AIの状態')).toBeInTheDocument();
+});
+
+it('非表示ユーザーをホワイトリストへ移して保存できる', async () => {
+  const stored = structuredClone(DEFAULT_SETTINGS);
+  stored.hiddenUsers = [
+    { channelId: 'UC-bad', displayName: '常習くん', addedAt: 1 },
+  ];
+  mocks.get.mockResolvedValue({ settings: stored });
+  render(<App />);
+  expect(await screen.findByText('常習くん')).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole('button', { name: '常習くんをホワイトリストへ' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: '設定を保存' }));
+  await waitFor(() => expect(mocks.set).toHaveBeenCalled());
+  expect(mocks.set).toHaveBeenCalledWith({
+    settings: expect.objectContaining({
+      hiddenUsers: [],
+      whitelistedUsers: [
+        expect.objectContaining({
+          channelId: 'UC-bad',
+          displayName: '常習くん',
+        }),
+      ],
+    }),
+  });
+});
+
+it('使用しないを選ぶとAI設定を隠す', async () => {
+  render(<App />);
+  await screen.findByRole('heading', { name: 'ローカルAI設定' });
+  fireEvent.click(screen.getByLabelText('使用しない'));
+  expect(screen.queryByLabelText('Chrome内蔵AIの状態')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('エンドポイント')).not.toBeInTheDocument();
+  expect(
+    screen.queryByLabelText('AI応答の待ち時間（秒）'),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByLabelText('未判定コメントをときどきAIで再確認'),
+  ).not.toBeInTheDocument();
 });

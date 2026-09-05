@@ -121,7 +121,8 @@ body {
 .diagnostic-panel,
 .debug-history-panel,
 .flow-chat-panel,
-.category-panel {
+.category-panel,
+.user-list-panel {
   padding: 18px;
 }
 
@@ -277,6 +278,46 @@ select,
   color: var(--muted);
   font-size: 11px;
   font-weight: 400;
+}
+
+.user-list-panel h3 {
+  margin: 16px 0 8px;
+  font-size: 14px;
+}
+
+.tracked-user-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tracked-user-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+}
+
+.tracked-user-list strong {
+  display: block;
+  font-size: 13px;
+}
+
+.tracked-user-list small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tracked-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .category-table {
@@ -649,7 +690,7 @@ select,
     padding: 16px;
   }
   .sidebar nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     margin-top: 18px;
   }
   .sidebar nav a {

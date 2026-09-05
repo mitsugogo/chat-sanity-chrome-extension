@@ -48,6 +48,7 @@ export class SessionRuleLearner {
     if (
       ai.category === 'safe' ||
       ai.category === 'spam' ||
+      ai.category === 'hidden_user' ||
       ai.category === 'unknown' ||
       score === null ||
       score < HIGH_CONFIDENCE_SCORE ||

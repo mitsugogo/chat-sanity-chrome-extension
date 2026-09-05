@@ -18,6 +18,12 @@ import {
   normalizeLmStudio,
 } from '../../lib/settings';
 import { loadSettings, saveSettings } from '../../lib/storage';
+import {
+  normalizeTrackedUsers,
+  removeHiddenUser,
+  removeWhitelistedUser,
+  whitelistUser,
+} from '../../lib/user-lists';
 import type {
   ConfigurableCategory,
   DiagnosticEntry,
@@ -28,6 +34,7 @@ import type {
   SettingsV1,
   FlowChatMetricsSnapshot,
   LocalAiAvailability,
+  TrackedUser,
 } from '../../lib/types';
 
 const CATEGORY_DESCRIPTIONS: Record<ConfigurableCategory, string> = {
@@ -195,22 +202,21 @@ export default function App() {
     }
   };
 
-  const toggleLmStudio = async (enabled: boolean) => {
-    if (!enabled) {
-      setSettings((current) => ({
-        ...current,
-        lmStudio: { ...current.lmStudio, enabled: false },
-      }));
+  const selectLocalAiMode = async (mode: SettingsV1['localAiMode']) => {
+    setSettings((current) => ({
+      ...current,
+      localAiMode: mode,
+      ...(mode === 'lm-studio'
+        ? { lmStudio: { ...current.lmStudio, enabled: true } }
+        : mode === 'chrome-built-in'
+          ? { chromeBuiltIn: { enabled: true } }
+          : {}),
+    }));
+    if (mode === 'lm-studio') {
+      await testConnection(true);
+    } else if (mode === 'disabled') {
       setConnection('idle');
       setConnectionMessage('無効');
-      return;
-    }
-    const connected = await testConnection(true);
-    if (connected) {
-      setSettings((current) => ({
-        ...current,
-        lmStudio: { ...current.lmStudio, enabled: true },
-      }));
     }
   };
 
@@ -323,6 +329,11 @@ export default function App() {
     setTesting(false);
   };
 
+  const aiMode = settings.localAiMode;
+  const showChromeAi = aiMode === 'auto' || aiMode === 'chrome-built-in';
+  const showLmStudio = aiMode === 'lm-studio';
+  const showSharedAi = aiMode !== 'disabled';
+
   return (
     <div className="options-shell">
       <aside className="sidebar">
@@ -331,6 +342,7 @@ export default function App() {
           <a href="#filter" className="is-active">
             フィルター
           </a>
+          <a href="#hidden-users">非表示ユーザー</a>
           <a href="#local-ai">ローカルAI</a>
           <a href="#flow-chat">Flow Chat連携</a>
           <a href="#diagnostic">診断</a>
@@ -641,6 +653,22 @@ export default function App() {
                 }
               />
             </section>
+
+            <TrackedUsersPanel
+              hiddenUsers={settings.hiddenUsers}
+              whitelistedUsers={settings.whitelistedUsers}
+              onWhitelist={(channelId) =>
+                setSettings((current) => whitelistUser(current, channelId))
+              }
+              onRemoveHidden={(channelId) =>
+                setSettings((current) => removeHiddenUser(current, channelId))
+              }
+              onRemoveWhitelist={(channelId) =>
+                setSettings((current) =>
+                  removeWhitelistedUser(current, channelId),
+                )
+              }
+            />
           </div>
 
           <div className="secondary-column">
@@ -662,46 +690,35 @@ export default function App() {
                       name="local-ai-mode"
                       value={value}
                       checked={settings.localAiMode === value}
-                      onChange={() =>
-                        setSettings((current) => ({
-                          ...current,
-                          localAiMode: value,
-                        }))
-                      }
+                      onChange={() => void selectLocalAiMode(value)}
                     />
                     <span>{label}</span>
                   </label>
                 ))}
               </fieldset>
-              <div className="chrome-ai-card" aria-label="Chrome内蔵AIの状態">
-                <strong>Chrome 内蔵AI</strong>
-                <span>{chromeAiMessage}</span>
-                {chromeAiProgress !== null ? (
-                  <progress
-                    aria-label="Chrome AIモデルのダウンロード進捗"
-                    max={100}
-                    value={chromeAiProgress}
-                  />
-                ) : null}
-                {chromeAiAvailability === 'downloadable' ? (
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => void prepareChromeAi()}
-                  >
-                    Chrome AIを準備する
-                  </button>
-                ) : null}
-              </div>
-              <div className="setting-row">
-                <strong>LM Studioを使用する</strong>
-                <Switch
-                  checked={settings.lmStudio.enabled}
-                  onChange={(enabled) => void toggleLmStudio(enabled)}
-                  label="LM Studioを使用する"
-                />
-              </div>
-              {settings.lmStudio.enabled ? (
+              {showChromeAi ? (
+                <div className="chrome-ai-card" aria-label="Chrome内蔵AIの状態">
+                  <strong>Chrome 内蔵AI</strong>
+                  <span>{chromeAiMessage}</span>
+                  {chromeAiProgress !== null ? (
+                    <progress
+                      aria-label="Chrome AIモデルのダウンロード進捗"
+                      max={100}
+                      value={chromeAiProgress}
+                    />
+                  ) : null}
+                  {chromeAiAvailability === 'downloadable' ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void prepareChromeAi()}
+                    >
+                      Chrome AIを準備する
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {showLmStudio ? (
                 <>
                   <label className="field">
                     <span>エンドポイント</span>
@@ -778,6 +795,10 @@ export default function App() {
                       <option value="text">テキストからJSONを検証</option>
                     </select>
                   </label>
+                </>
+              ) : null}
+              {showSharedAi ? (
+                <>
                   <AiNumber
                     label="AI応答の待ち時間（秒）"
                     value={settings.lmStudio.requestTimeoutMs / 1000}
@@ -845,7 +866,10 @@ export default function App() {
                       }
                     />
                     <p>
-                      500msでルール結果を表示し、AIの応答が届けば更新します。遅い場合は件数を減らすか待ち時間を延ばしてください。形式エラーの場合は互換形式を試せます。
+                      500msでルール結果を表示し、AIの応答が届けば更新します。遅い場合は件数を減らすか待ち時間を延ばしてください。
+                      {showLmStudio
+                        ? '形式エラーの場合は互換形式を試せます。'
+                        : null}
                     </p>
                   </div>
                   <div className="setting-row">
@@ -1005,6 +1029,105 @@ function ThresholdInput({
         以上
       </span>
     </label>
+  );
+}
+
+function TrackedUsersPanel({
+  hiddenUsers,
+  whitelistedUsers,
+  onWhitelist,
+  onRemoveHidden,
+  onRemoveWhitelist,
+}: {
+  hiddenUsers: TrackedUser[];
+  whitelistedUsers: TrackedUser[];
+  onWhitelist: (channelId: string) => void;
+  onRemoveHidden: (channelId: string) => void;
+  onRemoveWhitelist: (channelId: string) => void;
+}) {
+  return (
+    <section className="panel user-list-panel" id="hidden-users">
+      <div className="section-heading">
+        <div>
+          <h2>非表示ユーザー</h2>
+          <p>
+            同じ配信でぼかし・非表示が続いたユーザーを、他の配信でも非表示にします。表示したい場合はホワイトリストへ移せます。自分の投稿は常に表示（0.00）です。
+          </p>
+        </div>
+      </div>
+      {hiddenUsers.length === 0 ? (
+        <p className="empty-diagnostic">まだ登録されていません。</p>
+      ) : (
+        <ul className="tracked-user-list" aria-label="非表示ユーザー一覧">
+          {hiddenUsers.map((user) => (
+            <TrackedUserRow
+              key={user.channelId}
+              user={user}
+              actions={[
+                {
+                  label: 'ホワイトリストへ',
+                  onClick: () => onWhitelist(user.channelId),
+                },
+                {
+                  label: '解除',
+                  onClick: () => onRemoveHidden(user.channelId),
+                },
+              ]}
+            />
+          ))}
+        </ul>
+      )}
+      <h3>ホワイトリスト</h3>
+      {whitelistedUsers.length === 0 ? (
+        <p className="empty-diagnostic">ホワイトリストのユーザーはいません。</p>
+      ) : (
+        <ul className="tracked-user-list" aria-label="ホワイトリスト">
+          {whitelistedUsers.map((user) => (
+            <TrackedUserRow
+              key={user.channelId}
+              user={user}
+              actions={[
+                {
+                  label: '解除',
+                  onClick: () => onRemoveWhitelist(user.channelId),
+                },
+              ]}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function TrackedUserRow({
+  user,
+  actions,
+}: {
+  user: TrackedUser;
+  actions: Array<{ label: string; onClick: () => void }>;
+}) {
+  const name = user.displayName || user.channelId;
+  return (
+    <li>
+      <div>
+        <strong>{name}</strong>
+        {user.displayName ? <small>{user.channelId}</small> : null}
+      </div>
+      <div className="tracked-user-actions">
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            className="secondary-button"
+            onClick={action.onClick}
+            aria-label={`${name}を${action.label}`}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </li>
   );
 }
 
@@ -1213,6 +1336,7 @@ function DebugHistoryPanel({
 function categoryLabel(category: DiagnosticEntry['category']): string {
   if (category === 'safe') return '安全';
   if (category === 'spam') return 'スパム';
+  if (category === 'hidden_user') return '非表示ユーザー';
   if (category === 'unknown') return '判定不能';
   return CATEGORY_LABELS[category];
 }
@@ -1265,6 +1389,13 @@ function sanitizeSettings(value: SettingsV1): SettingsV1 {
   next.flowChat = normalizeFlowChat(next.flowChat);
   next.blockedWords = cleanWords(next.blockedWords);
   next.allowedWords = cleanWords(next.allowedWords);
+  next.whitelistedUsers = normalizeTrackedUsers(next.whitelistedUsers);
+  const whitelistIds = new Set(
+    next.whitelistedUsers.map((user) => user.channelId),
+  );
+  next.hiddenUsers = normalizeTrackedUsers(next.hiddenUsers).filter(
+    (user) => !whitelistIds.has(user.channelId),
+  );
   for (const preset of Object.keys(next.profiles) as PresetId[]) {
     const current = next.profiles[preset];
     current.thresholds.dim = clamp(current.thresholds.dim, 0.05, 0.9);

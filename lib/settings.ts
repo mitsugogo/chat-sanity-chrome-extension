@@ -1,6 +1,7 @@
 import type {
   CategorySettings,
   ConfigurableCategory,
+  FilterCategory,
   FilterMode,
   PresetId,
   LmStudioSettings,
@@ -8,6 +9,7 @@ import type {
   PresetProfile,
   SettingsV1,
 } from './types';
+import { normalizeTrackedUsers } from './user-lists';
 
 export const CATEGORY_LABELS: Record<ConfigurableCategory, string> = {
   backseat: '指示・指示厨',
@@ -108,6 +110,8 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
   },
   blockedWords: [],
   allowedWords: [],
+  hiddenUsers: [],
+  whitelistedUsers: [],
   lmStudio: {
     enabled: false,
     endpoint: 'http://127.0.0.1:1234',
@@ -188,6 +192,7 @@ export function normalizeSettings(value: unknown): SettingsV1 {
     flowChat: normalizeFlowChat(partial.flowChat),
     blockedWords: cleanWords(partial.blockedWords),
     allowedWords: cleanWords(partial.allowedWords),
+    ...normalizeUserLists(partial.hiddenUsers, partial.whitelistedUsers),
   };
 }
 
@@ -325,6 +330,26 @@ function finiteClamp(
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.min(max, Math.max(min, value))
     : fallback;
+}
+
+function normalizeUserLists(
+  hiddenValue: unknown,
+  whitelistValue: unknown,
+): Pick<SettingsV1, 'hiddenUsers' | 'whitelistedUsers'> {
+  const whitelistedUsers = normalizeTrackedUsers(whitelistValue);
+  const whitelistIds = new Set(whitelistedUsers.map((user) => user.channelId));
+  return {
+    whitelistedUsers,
+    hiddenUsers: normalizeTrackedUsers(hiddenValue).filter(
+      (user) => !whitelistIds.has(user.channelId),
+    ),
+  };
+}
+
+export function isConfigurableCategory(
+  value: FilterCategory,
+): value is ConfigurableCategory {
+  return (CONFIGURABLE_CATEGORY_KEYS as readonly string[]).includes(value);
 }
 
 export function cleanWords(value: unknown): string[] {

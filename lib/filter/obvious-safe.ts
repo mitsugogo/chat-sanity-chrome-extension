@@ -1,4 +1,4 @@
-const CUSTOM_EMOJI = /:[a-zA-Z0-9_+-]+:/gu;
+const CUSTOM_EMOJI = /:[^\s:]+:/gu;
 const EMOJI = /\p{Extended_Pictographic}/gu;
 const PUNCTUATION_ONLY = /^[\s\p{P}\p{S}]+$/u;
 const LAUGHTER_ONLY = /^(?:w|ｗ|草|笑|ha|はは|アハ|あは)+[!！?？〜～ー]*$/iu;

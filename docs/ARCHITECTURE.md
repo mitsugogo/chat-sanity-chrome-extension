@@ -6,9 +6,10 @@
 YouTube chat DOM
   -> YouTube Adapter
   -> Normalizer
-  -> Safe Fast Path
+  -> Safe Fast Path (owner/mod/self/whitelist/stamps/allowed words)
+  -> Hidden users
   -> Feature Extraction / Rule Scoring
-  -> Context Modifier / Spam Detector
+  -> Context Modifier / Spam Detector / Session author boost
   -> ambiguous or sampled unmatched: Service Worker -> LocalAiResolver
        -> Chrome Built-in AI -> LM Studio -> Rules
   -> action selection
@@ -38,7 +39,7 @@ Content ScriptはYouTubeのチャットフレームで新着ノードを監視�
 
 ## 状態と保存先
 
-`chrome.storage.sync`へ保存するのは`SettingsV1`だけです。プリセット、閾値、語句、Local AI mode、Chrome内蔵AI・LM Studio設定、Flow Chat連携のON/OFFと除外基準を含み、`schemaVersion: 1`で将来の移行境界を示します。
+`chrome.storage.sync`へ保存するのは`SettingsV1`だけです。プリセット、閾値、語句、非表示ユーザーとホワイトリストのチャンネルID・表示名、Local AI mode、Chrome内蔵AI・LM Studio設定、Flow Chat連携のON/OFFと除外基準を含み、`schemaVersion: 1`で将来の移行境界を示します。コメント本文は保存しません。
 
 判定履歴、処理済みDOM、同文キャッシュはチャットフレームのメモリ内にだけ保持し、タブ終了時に破棄します。デバッグ履歴は直近200件、同文キャッシュは最大500件で、キャッシュのTTLは10分です。
 
@@ -58,7 +59,7 @@ Flow Chat側の連携クラスは`lib/integrations/flow-chat/constants.ts`へ隔
 
 ## AI補助判定と一時学習
 
-通常のAI対象は設定で狭められる0.35〜0.80の曖昧域です。これに加え、Local AIとZero-score Auditが有効な場合だけ、`unmatched`かつ0点の一部を監査します。基礎確率は3%で、10秒内の本文頻度、弱い監査シグナル、対立度を加味し、最大50%・12件/分・同時20件に制限します。監査はContent Scriptで行い、ルールスコアへは影響しません。無効化・配信者／モデレーター除外、許可語句、ブロック語句、カテゴリルール、スパムの順序を維持します。AI結果にもカテゴリの有効状態と重みを適用し、スパム判定はAIで打ち消しません。診断プレビューも共通の`mergeAiResult`を使用します。
+通常のAI対象は設定で狭められる0.35〜0.80の曖昧域です。これに加え、Local AIとZero-score Auditが有効な場合だけ、`unmatched`かつ0点の一部を監査します。基礎確率は3%で、10秒内の本文頻度、弱い監査シグナル、対立度を加味し、最大50%・12件/分・同時20件に制限します。監査はContent Scriptで行い、ルールスコアへは影響しません。無効化・配信者／モデレーター／自分／ホワイトリスト除外、許可語句、ブロック語句、非表示ユーザー、カテゴリルール、スパム、セッション加重の順序を維持します。同一セッションでぼかし・非表示が続いた投稿者は後続コメントのスコアを上げ、閾値に達したチャンネルIDだけを非表示ユーザーへ記録します。AI結果にもカテゴリの有効状態と重みを適用し、スパム判定はAIで打ち消しません。診断プレビューも共通の`mergeAiResult`を使用します。
 
 200ms単位、最大20件のバッチを1つずつ実行します。Chrome内蔵AIはResolver内で最大8件へ分割し、LM Studioは最大20件を維持します。待機上限は100件です。表示待機500msと推論待機`requestTimeoutMs`（既定10秒、1〜60秒）は分離し、時間のかかるローカルモデルでも先にルール表示した後から更新できます。HTTP応答本文の受信・解析までタイムアウトの対象です。Chrome Prompt APIは`responseConstraint`を使い、LM StudioのJSON Schema、JSON Object、テキスト互換形式とともにruntime validationを共通化しています。Chrome側はsystem promptだけのbase sessionをService Worker内で遅延作成し、batchごとにcloneして必ずdestroyします。Service Worker再起動時はsessionを再生成します。`downloadable`と`downloading`では通常分類から`create()`せず、Options画面のユーザー操作だけが初回モデル準備を開始します。プロンプトに日本語の問題例・安全例を含め、コメント内の命令を分類データとして扱うよう指示します。明らかなリアクションはAIへ送らず、広いprefilterも候補抽出にだけ使います。
 
