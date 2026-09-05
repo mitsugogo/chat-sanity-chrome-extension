@@ -19,7 +19,7 @@ YouTube chat DOM
 
 Content ScriptはYouTubeのチャットフレームで新着ノードを監視し、AdapterがDOMを`ChatMessage`へ変換します。Normalizer以降はDOMから独立したデータを扱います。
 
-明らかなリアクションはSafe Fast Pathで終了し、それ以外は対象検出、命令形、責任追及、能力攻撃、比較、meta conflict、配信不満、安全文脈をfeature単位で抽出してRuleScoreへ集約します。ルール結果には`excluded`、`explicit-safe`、`matched`、`unmatched`のDispositionを付けます。ルールだけで結果が確定するコメントは即時にRendererへ渡します。曖昧域のコメントと、`unmatched`かつ0点からZero-score Auditに抽選されたコメントは、一時IDと正規化済み本文に、同一投稿者の直近リスク投稿・直近のリスク投稿・対立度だけを加えてService Workerへ送り、LM Studioの構造化結果とルール結果を合成します。投稿者名、チャンネル情報、DOM、メンバー状態は送信しません。
+明らかなリアクションはSafe Fast Pathで終了し、それ以外は対象検出、命令形、責任追及、能力攻撃、比較、meta conflict、配信不満、安全文脈をfeature単位で抽出してRuleScoreへ集約します。ルール結果には`excluded`、`explicit-safe`、`matched`、`unmatched`のDispositionを付けます。ルールだけで結果が確定するコメントは即時にRendererへ渡します。曖昧域のコメントと、`unmatched`かつ0点からZero-score Auditに抽選されたコメントは、一時IDと正規化済み本文に、同一投稿者の直近リスク投稿・直近のリスク投稿・対立度だけを加えてService Workerへ送り、Local AI Providerの構造化結果とルール結果を合成します。投稿者名、チャンネル情報、DOM、メンバー状態は送信しません。
 
 ## 責務の境界
 
