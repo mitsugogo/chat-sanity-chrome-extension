@@ -1,0 +1,168 @@
+html,
+body,
+#root {
+  width: 400px;
+  min-height: 560px;
+}
+
+body {
+  background: #fff;
+}
+
+.popup-shell {
+  padding: 24px;
+  background: var(--surface);
+}
+
+.popup-header,
+.master-control,
+.chat-status,
+.session-summary,
+.ai-status,
+.options-button {
+  display: flex;
+  align-items: center;
+}
+
+.popup-header {
+  justify-content: space-between;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.master-control {
+  gap: 10px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.chat-status {
+  gap: 10px;
+  min-height: 66px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 560;
+}
+
+.popup-section {
+  padding: 22px 0 18px;
+}
+
+.popup-section h1 {
+  margin: 0 0 14px;
+  font-size: 17px;
+  line-height: 1.4;
+  letter-spacing: -0.2px;
+}
+
+.preset-control {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
+  border: 1px solid #bdc7d2;
+  border-radius: 8px;
+}
+
+.preset-control button {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid #bdc7d2;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.preset-control button:last-child {
+  border-right: 0;
+}
+
+.preset-control button.is-active {
+  background: var(--accent);
+  color: white;
+}
+
+.preset-description {
+  min-height: 38px;
+  margin: 12px 1px 0;
+  color: #465467;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.session-summary {
+  justify-content: space-between;
+  gap: 13px;
+  min-height: 66px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.session-summary strong {
+  font-size: 14px;
+}
+
+.session-summary b {
+  margin-left: 4px;
+  color: var(--accent-dark);
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-divider {
+  width: 1px;
+  height: 30px;
+  background: var(--line);
+}
+
+.ai-status {
+  gap: 13px;
+  min-height: 84px;
+  margin-top: 16px;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.ai-status div {
+  display: grid;
+  gap: 5px;
+}
+
+.ai-status strong {
+  font-size: 14px;
+}
+
+.ai-status div span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.options-button {
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 18px;
+  border: 1px solid #8492a3;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.options-button:hover {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.options-button svg {
+  width: 21px;
+  height: 21px;
+}

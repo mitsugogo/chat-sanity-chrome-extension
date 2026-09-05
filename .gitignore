@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+.output/
+.wxt/
+coverage/
+.qa/
+*.zip
+*.log

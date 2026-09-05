@@ -1,0 +1,102 @@
+yt-live-chat-text-message-renderer.chatsanity-dim,
+yt-live-chat-paid-message-renderer.chatsanity-dim,
+yt-live-chat-membership-item-renderer.chatsanity-dim {
+  opacity: 0.45 !important;
+}
+
+.chatsanity-blur #message {
+  cursor: pointer;
+  filter: blur(5px);
+  transition: filter 140ms ease;
+}
+
+.chatsanity-blur.chatsanity-revealed #message {
+  filter: none;
+}
+
+.chatsanity-pending > :not(.chatsanity-placeholder) {
+  display: none !important;
+}
+
+.chatsanity-hidden {
+  position: relative;
+  overflow: hidden;
+}
+
+.chatsanity-hidden > :not(.chatsanity-placeholder) {
+  opacity: 0.16 !important;
+  filter: blur(9px) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  transition:
+    filter 140ms ease,
+    opacity 140ms ease;
+}
+
+.chatsanity-hidden.chatsanity-revealed > :not(.chatsanity-placeholder) {
+  opacity: 1 !important;
+  filter: none !important;
+  pointer-events: auto !important;
+  user-select: auto !important;
+}
+
+.chatsanity-placeholder {
+  box-sizing: border-box;
+  width: auto;
+  min-height: 22px;
+  margin: 4px 12px;
+  padding: 2px 8px;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.12);
+  color: inherit;
+  opacity: 0.62;
+  font:
+    500 11px/1.35 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  text-align: left;
+}
+
+.chatsanity-hidden > .chatsanity-placeholder {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  right: 12px;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+
+.chatsanity-hidden.chatsanity-revealed > .chatsanity-placeholder {
+  position: relative;
+  top: auto;
+  right: auto;
+  display: block;
+  margin-left: auto;
+  transform: none;
+}
+
+.chatsanity-placeholder:not(:disabled) {
+  cursor: pointer;
+}
+
+.chatsanity-placeholder:not(:disabled):hover {
+  background: rgba(128, 128, 128, 0.2);
+  opacity: 0.86;
+}
+
+.chatsanity-placeholder:not(:disabled):focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatsanity-blur #message,
+  .chatsanity-hidden > :not(.chatsanity-placeholder) {
+    transition: none;
+  }
+}
