@@ -5,17 +5,9 @@ import type {
 } from '../types';
 
 export type LocalAiProviderId = 'chrome-built-in' | 'lm-studio';
-export type LocalAiMode =
-  | 'auto'
-  | 'chrome-built-in'
-  | 'lm-studio'
-  | 'disabled';
+export type LocalAiMode = 'auto' | 'chrome-built-in' | 'lm-studio' | 'disabled';
 export type LocalAiAvailability =
-  | 'available'
-  | 'downloadable'
-  | 'downloading'
-  | 'unavailable'
-  | 'error';
+  'available' | 'downloadable' | 'downloading' | 'unavailable' | 'error';
 
 export interface LocalAiProvider {
   readonly id: LocalAiProviderId;

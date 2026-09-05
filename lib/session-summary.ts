@@ -18,14 +18,12 @@ export function aggregateSessionSummaries(
     status: 'unavailable',
   },
 ): SessionSummary {
-  const localAi = [
-    ...sessions.map((session) => session.summary.localAi),
-    fallbackLocalAi,
-  ]
-    .filter((value): value is LocalAiStatus => Boolean(value))
-    .sort((left, right) =>
-      statusRank(right.status) - statusRank(left.status),
-    )[0] ?? fallbackLocalAi;
+  const localAi =
+    [...sessions.map((session) => session.summary.localAi), fallbackLocalAi]
+      .filter((value): value is LocalAiStatus => Boolean(value))
+      .sort(
+        (left, right) => statusRank(right.status) - statusRank(left.status),
+      )[0] ?? fallbackLocalAi;
   return {
     active: sessions.some((session) => session.summary.active),
     hidden: sessions.reduce(

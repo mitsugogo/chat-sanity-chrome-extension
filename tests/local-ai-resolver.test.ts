@@ -36,7 +36,11 @@ function provider(
     maxBatchSize,
     getAvailability: vi.fn(async () => availability),
     classify: vi.fn(async (batch: typeof items) =>
-      batch.map((item) => ({ id: item.id, category: 'safe' as const, score: 0 })),
+      batch.map((item) => ({
+        id: item.id,
+        category: 'safe' as const,
+        score: 0,
+      })),
     ),
     dispose: vi.fn(),
   };
@@ -72,7 +76,9 @@ describe('LocalAiResolver', () => {
 
   it('Chrome分類失敗時もLM Studioへfallbackする', async () => {
     const chrome = provider('chrome-built-in', 'available');
-    chrome.classify.mockRejectedValue(new DOMException('quota', 'QuotaExceededError'));
+    chrome.classify.mockRejectedValue(
+      new DOMException('quota', 'QuotaExceededError'),
+    );
     const lm = provider('lm-studio', 'available');
     const result = await new LocalAiResolver(settings(), {
       'chrome-built-in': chrome,

@@ -48,19 +48,21 @@ afterEach(() => {
 describe('options', () => {
   it('自動を既定にしユーザー操作からChrome AIを準備する', async () => {
     const setupSession = { destroy: vi.fn() };
-    const create = vi.fn(async (options: {
-      monitor?: (monitor: {
-        addEventListener: (
-          type: 'downloadprogress',
-          listener: (event: { loaded: number }) => void,
-        ) => void;
-      }) => void;
-    }) => {
-      options.monitor?.({
-        addEventListener: (_type, listener) => listener({ loaded: 0.5 }),
-      });
-      return setupSession;
-    });
+    const create = vi.fn(
+      async (options: {
+        monitor?: (monitor: {
+          addEventListener: (
+            type: 'downloadprogress',
+            listener: (event: { loaded: number }) => void,
+          ) => void;
+        }) => void;
+      }) => {
+        options.monitor?.({
+          addEventListener: (_type, listener) => listener({ loaded: 0.5 }),
+        });
+        return setupSession;
+      },
+    );
     vi.stubGlobal('LanguageModel', {
       availability: vi.fn(async () => 'downloadable'),
       create,

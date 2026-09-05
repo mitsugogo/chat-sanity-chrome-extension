@@ -43,8 +43,9 @@ export const MODEL_OPTIONS = {
 } as const;
 
 function languageModelApi(): LanguageModelApiLike | undefined {
-  return (globalThis as typeof globalThis & { LanguageModel?: LanguageModelApiLike })
-    .LanguageModel;
+  return (
+    globalThis as typeof globalThis & { LanguageModel?: LanguageModelApiLike }
+  ).LanguageModel;
 }
 
 export async function getChromeBuiltInAvailability(): Promise<LocalAiAvailability> {
@@ -52,12 +53,13 @@ export async function getChromeBuiltInAvailability(): Promise<LocalAiAvailabilit
   if (!api) return 'unavailable';
   try {
     const availability = await api.availability(MODEL_OPTIONS);
-    return availability === 'available' ||
-      availability === 'downloadable' ||
-      availability === 'downloading' ||
-      availability === 'unavailable'
-      ? availability
-      : 'error';
+    if (availability === 'available' || availability === 'readily')
+      return 'available';
+    if (availability === 'downloadable' || availability === 'after-download')
+      return 'downloadable';
+    if (availability === 'downloading') return 'downloading';
+    if (availability === 'unavailable') return 'unavailable';
+    return 'error';
   } catch {
     return 'error';
   }
@@ -74,14 +76,13 @@ export async function prepareChromeBuiltInAi(
   }
   const session = await api.create({
     ...MODEL_OPTIONS,
-    initialPrompts: [
-      { role: 'system', content: CLASSIFICATION_SYSTEM_PROMPT },
-    ],
+    initialPrompts: [{ role: 'system', content: CLASSIFICATION_SYSTEM_PROMPT }],
     monitor(monitor) {
       monitor.addEventListener('downloadprogress', (event) => {
-        const ratio = event.total && event.total > 0
-          ? event.loaded / event.total
-          : event.loaded;
+        const ratio =
+          event.total && event.total > 0
+            ? event.loaded / event.total
+            : event.loaded;
         onProgress?.(Math.round(Math.min(1, Math.max(0, ratio)) * 100));
       });
     },
@@ -107,7 +108,9 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
     options?: { signal?: AbortSignal },
   ): Promise<LmClassificationResult[]> {
     if (items.length === 0 || items.length > this.maxBatchSize) {
-      throw new Error(`Chrome内蔵AIの分類バッチは1〜${this.maxBatchSize}件です。`);
+      throw new Error(
+        `Chrome内蔵AIの分類バッチは1〜${this.maxBatchSize}件です。`,
+      );
     }
     if ((await this.getAvailability()) !== 'available') {
       throw new Error('Chrome内蔵AIはまだ利用可能ではありません。');
@@ -115,7 +118,7 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
     const { signal, cleanup } = timeoutSignal(this.timeoutMs, options?.signal);
     let session: LanguageModelSessionLike | undefined;
     try {
-      const base = await this.ensureBaseSession(signal);
+      const base = await this.ensureBaseSession();
       session = await base.clone({ signal });
       const raw = await session.prompt(createClassificationInput(items), {
         responseConstraint: createClassificationSchema(items.length),
@@ -147,12 +150,14 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
     this.baseSession = undefined;
     const pending = this.baseSessionPromise;
     this.baseSessionPromise = undefined;
-    if (pending) void pending.then((session) => session.destroy(), () => undefined);
+    if (pending)
+      void pending.then(
+        (session) => session.destroy(),
+        () => undefined,
+      );
   }
 
-  private async ensureBaseSession(
-    signal: AbortSignal,
-  ): Promise<LanguageModelSessionLike> {
+  private async ensureBaseSession(): Promise<LanguageModelSessionLike> {
     if (this.baseSession) return this.baseSession;
     if (this.baseSessionPromise) return this.baseSessionPromise;
     const api = languageModelApi();
@@ -162,7 +167,6 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
       initialPrompts: [
         { role: 'system', content: CLASSIFICATION_SYSTEM_PROMPT },
       ],
-      signal,
     });
     try {
       this.baseSession = await this.baseSessionPromise;

@@ -419,7 +419,8 @@ export function normalizeLmStudio(
 export function isLocalAiConfigured(settings: SettingsV1): boolean {
   if (settings.localAiMode === 'disabled') return false;
   const chromeEnabled = settings.chromeBuiltIn.enabled;
-  const lmEnabled = settings.lmStudio.enabled && Boolean(settings.lmStudio.model);
+  const lmEnabled =
+    settings.lmStudio.enabled && Boolean(settings.lmStudio.model);
   if (settings.localAiMode === 'chrome-built-in') return chromeEnabled;
   if (settings.localAiMode === 'lm-studio') return lmEnabled;
   return chromeEnabled || lmEnabled;

@@ -132,7 +132,11 @@ export default defineContentScript({
           type: 'local-ai:classify',
           items,
         } satisfies RuntimeMessage)) as RuntimeResponse;
-        if (!response.ok || !('results' in response) || !('providerId' in response)) {
+        if (
+          !response.ok ||
+          !('results' in response) ||
+          !('providerId' in response)
+        ) {
           throw new Error(
             response.ok ? '分類結果がありません。' : response.error,
           );
@@ -555,7 +559,7 @@ export default defineContentScript({
             auditDecision,
           );
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           settled = true;
           clearTimeout(fallbackTimer);
           if (requestReason === 'zero-score-audit') {
@@ -580,7 +584,7 @@ export default defineContentScript({
               ...(requestReason === 'zero-score-audit'
                 ? ['Zero-score Audit', ...(auditDecision?.reasons ?? [])]
                 : []),
-              'ローカルAIを利用できないためルール判定を使用',
+              `ローカルAIを利用できないためルール判定を使用${error instanceof Error && error.message ? `: ${error.message}` : ''}`,
             ],
             ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
             ...(base.features ? { features: base.features } : {}),

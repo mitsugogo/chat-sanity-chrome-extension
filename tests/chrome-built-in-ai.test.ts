@@ -11,13 +11,17 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function createSessions(result = {
-  results: [
-    { id: 'one', category: 'backseat', action: 'blur', confidence: 0.9 },
-  ],
-}) {
+function createSessions(
+  result = {
+    results: [
+      { id: 'one', category: 'backseat', action: 'blur', confidence: 0.9 },
+    ],
+  },
+) {
   const batch = {
-    prompt: vi.fn(async (_input: string, _options?: object) => JSON.stringify(result)),
+    prompt: vi.fn<(input: string, options?: object) => Promise<string>>(
+      async () => JSON.stringify(result),
+    ),
     clone: vi.fn(),
     destroy: vi.fn(),
   };
@@ -46,10 +50,11 @@ describe('ChromeBuiltInAiProvider', () => {
       create,
     });
     const provider = new ChromeBuiltInAiProvider();
-    await expect(provider.classify([{ id: 'one', text: '進んだら？' }]))
-      .resolves.toEqual([
-        { id: 'one', category: 'backseat', action: 'blur', confidence: 0.9 },
-      ]);
+    await expect(
+      provider.classify([{ id: 'one', text: '進んだら？' }]),
+    ).resolves.toEqual([
+      { id: 'one', category: 'backseat', action: 'blur', confidence: 0.9 },
+    ]);
     await provider.classify([{ id: 'one', text: '進んだら？' }]);
     expect(create).toHaveBeenCalledOnce();
     expect(base.clone).toHaveBeenCalledTimes(2);
@@ -76,19 +81,21 @@ describe('ChromeBuiltInAiProvider', () => {
 
   it('ユーザー操作用prepareだけがdownloadを開始し進捗後に破棄する', async () => {
     const setup = { clone: vi.fn(), prompt: vi.fn(), destroy: vi.fn() };
-    const create = vi.fn(async (options: {
-      monitor?: (monitor: {
-        addEventListener: (
-          type: 'downloadprogress',
-          listener: (event: { loaded: number }) => void,
-        ) => void;
-      }) => void;
-    }) => {
-      options.monitor?.({
-        addEventListener: (_type, listener) => listener({ loaded: 0.42 }),
-      });
-      return setup;
-    });
+    const create = vi.fn(
+      async (options: {
+        monitor?: (monitor: {
+          addEventListener: (
+            type: 'downloadprogress',
+            listener: (event: { loaded: number }) => void,
+          ) => void;
+        }) => void;
+      }) => {
+        options.monitor?.({
+          addEventListener: (_type, listener) => listener({ loaded: 0.42 }),
+        });
+        return setup;
+      },
+    );
     vi.stubGlobal('LanguageModel', {
       availability: vi.fn(async () => 'downloadable'),
       create,

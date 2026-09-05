@@ -23,17 +23,9 @@ export type RuleDisposition =
   'excluded' | 'explicit-safe' | 'matched' | 'unmatched';
 export type AiRequestReason = 'uncertain-score' | 'zero-score-audit';
 export type LocalAiProviderId = 'chrome-built-in' | 'lm-studio';
-export type LocalAiMode =
-  | 'auto'
-  | 'chrome-built-in'
-  | 'lm-studio'
-  | 'disabled';
+export type LocalAiMode = 'auto' | 'chrome-built-in' | 'lm-studio' | 'disabled';
 export type LocalAiAvailability =
-  | 'available'
-  | 'downloadable'
-  | 'downloading'
-  | 'unavailable'
-  | 'error';
+  'available' | 'downloadable' | 'downloading' | 'unavailable' | 'error';
 export type PresetId = 'normal' | 'event' | 'peace';
 export type FilterMode = 'threshold' | 'allow' | 'dim' | 'blur' | 'hide';
 export type FlowChatExclusionLevel = 'blur' | 'hide' | 'custom';

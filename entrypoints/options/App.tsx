@@ -80,7 +80,8 @@ export default function App() {
   const [chromeAiAvailability, setChromeAiAvailability] =
     useState<LocalAiAvailability>('unavailable');
   const [chromeAiProgress, setChromeAiProgress] = useState<number | null>(null);
-  const [chromeAiMessage, setChromeAiMessage] = useState('状態を確認しています…');
+  const [chromeAiMessage, setChromeAiMessage] =
+    useState('状態を確認しています…');
 
   useEffect(() => {
     let cancelled = false;
@@ -223,7 +224,9 @@ export default function App() {
     } catch (error) {
       setChromeAiAvailability('error');
       setChromeAiMessage(
-        error instanceof Error ? error.message : 'Chrome内蔵AIの準備に失敗しました。',
+        error instanceof Error
+          ? error.message
+          : 'Chrome内蔵AIの準備に失敗しました。',
       );
     } finally {
       setChromeAiProgress(null);
@@ -645,12 +648,14 @@ export default function App() {
               <h2>ローカルAI設定</h2>
               <fieldset className="provider-options">
                 <legend>AIプロバイダー</legend>
-                {([
-                  ['auto', '自動（推奨）'],
-                  ['chrome-built-in', 'Chrome 内蔵AI'],
-                  ['lm-studio', 'LM Studio'],
-                  ['disabled', '使用しない'],
-                ] as const).map(([value, label]) => (
+                {(
+                  [
+                    ['auto', '自動（推奨）'],
+                    ['chrome-built-in', 'Chrome 内蔵AI'],
+                    ['lm-studio', 'LM Studio'],
+                    ['disabled', '使用しない'],
+                  ] as const
+                ).map(([value, label]) => (
                   <label key={value}>
                     <input
                       type="radio"
@@ -1058,7 +1063,10 @@ function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
       </p>
       {entry.aiProvider ? (
         <p>
-          AI Provider: {entry.aiProvider === 'chrome-built-in' ? 'Chrome Built-in' : 'LM Studio'}
+          AI Provider:{' '}
+          {entry.aiProvider === 'chrome-built-in'
+            ? 'Chrome Built-in'
+            : 'LM Studio'}
           {entry.aiReason ? ` / Reason: ${entry.aiReason}` : ''}
           {typeof entry.aiLatencyMs === 'number'
             ? ` / Latency: ${entry.aiLatencyMs.toFixed(0)}ms`
@@ -1156,7 +1164,10 @@ function DebugHistoryPanel({
               </p>
               {entry.aiProvider ? (
                 <p className="debug-history-features">
-                  AI Provider: {entry.aiProvider === 'chrome-built-in' ? 'Chrome Built-in' : 'LM Studio'}
+                  AI Provider:{' '}
+                  {entry.aiProvider === 'chrome-built-in'
+                    ? 'Chrome Built-in'
+                    : 'LM Studio'}
                   {entry.aiReason ? `・Reason: ${entry.aiReason}` : ''}
                   {typeof entry.aiLatencyMs === 'number'
                     ? `・Latency: ${entry.aiLatencyMs.toFixed(0)}ms`
@@ -1233,7 +1244,8 @@ function chromeAvailabilityLabel(availability: LocalAiAvailability): string {
   if (availability === 'available') return 'Chrome内蔵AIを利用できます';
   if (availability === 'downloadable') return 'モデルの準備が必要です';
   if (availability === 'downloading') return 'モデルをダウンロード中です';
-  if (availability === 'error') return 'Chrome内蔵AIの状態を確認できませんでした';
+  if (availability === 'error')
+    return 'Chrome内蔵AIの状態を確認できませんでした';
   return 'このChromeでは内蔵AIを利用できません';
 }
 

@@ -20,7 +20,9 @@ export class LocalAiResolver {
 
   constructor(
     private readonly settings: LocalAiResolverSettings,
-    private readonly providers: Partial<Record<LocalAiProviderId, LocalAiProvider>> = {},
+    private readonly providers: Partial<
+      Record<LocalAiProviderId, LocalAiProvider>
+    > = {},
   ) {}
 
   async classify(
@@ -39,7 +41,11 @@ export class LocalAiResolver {
         }
         const startedAt = performance.now();
         const results = [];
-        for (let index = 0; index < items.length; index += provider.maxBatchSize) {
+        for (
+          let index = 0;
+          index < items.length;
+          index += provider.maxBatchSize
+        ) {
           results.push(
             ...(await provider.classify(
               items.slice(index, index + provider.maxBatchSize),
@@ -58,7 +64,16 @@ export class LocalAiResolver {
         this.recordFailure(provider.id);
       }
     }
-    throw new AggregateError(errors, '利用可能なローカルAIがありません。');
+    const details = errors
+      .map((error) => (error instanceof Error ? error.message : String(error)))
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(' / ');
+    throw new Error(
+      details
+        ? `ローカルAI分類に失敗しました: ${details}`
+        : '利用可能なローカルAIがありません。',
+    );
   }
 
   async getStatus(): Promise<{
@@ -86,16 +101,21 @@ export class LocalAiResolver {
   private candidates(): LocalAiProvider[] {
     if (this.settings.mode === 'disabled') return [];
     const chrome = this.settings.chromeBuiltIn.enabled
-      ? (this.providers['chrome-built-in'] ??=
-        new ChromeBuiltInAiProvider(this.settings.lmStudio.timeoutMs))
+      ? (this.providers['chrome-built-in'] ??= new ChromeBuiltInAiProvider(
+          this.settings.lmStudio.timeoutMs,
+        ))
       : undefined;
-    const lm = this.settings.lmStudio.enabled && this.settings.lmStudio.model
-      ? (this.providers['lm-studio'] ??=
-        new LmStudioProvider(this.settings.lmStudio))
-      : undefined;
+    const lm =
+      this.settings.lmStudio.enabled && this.settings.lmStudio.model
+        ? (this.providers['lm-studio'] ??= new LmStudioProvider(
+            this.settings.lmStudio,
+          ))
+        : undefined;
     if (this.settings.mode === 'chrome-built-in') return chrome ? [chrome] : [];
     if (this.settings.mode === 'lm-studio') return lm ? [lm] : [];
-    return [chrome, lm].filter((provider): provider is LocalAiProvider => Boolean(provider));
+    return [chrome, lm].filter((provider): provider is LocalAiProvider =>
+      Boolean(provider),
+    );
   }
 
   private isCoolingDown(id: LocalAiProviderId): boolean {
