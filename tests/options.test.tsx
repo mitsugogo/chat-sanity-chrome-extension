@@ -5,7 +5,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -41,7 +41,41 @@ beforeEach(() => {
   );
 });
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('options', () => {
+  it('自動を既定にしユーザー操作からChrome AIを準備する', async () => {
+    const setupSession = { destroy: vi.fn() };
+    const create = vi.fn(async (options: {
+      monitor?: (monitor: {
+        addEventListener: (
+          type: 'downloadprogress',
+          listener: (event: { loaded: number }) => void,
+        ) => void;
+      }) => void;
+    }) => {
+      options.monitor?.({
+        addEventListener: (_type, listener) => listener({ loaded: 0.5 }),
+      });
+      return setupSession;
+    });
+    vi.stubGlobal('LanguageModel', {
+      availability: vi.fn(async () => 'downloadable'),
+      create,
+    });
+    render(<App />);
+    expect(await screen.findByLabelText('自動（推奨）')).toBeChecked();
+    expect(create).not.toHaveBeenCalled();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Chrome AIを準備する' }),
+    );
+    await screen.findByText('Chrome内蔵AIを利用できます');
+    expect(create).toHaveBeenCalledOnce();
+    expect(setupSession.destroy).toHaveBeenCalledOnce();
+  });
+
   it('主要設定を表示し保存できる', async () => {
     render(<App />);
     expect(
@@ -167,8 +201,8 @@ it('AI失敗の診断はルール結果と失敗理由を表示する', async ()
   expect(screen.getByText(/HTTP 500/)).toBeInTheDocument();
   expect(mocks.sendMessage).toHaveBeenLastCalledWith(
     expect.objectContaining({
-      timeoutMs: 10000,
-      responseFormat: 'json_schema',
+      type: 'local-ai:classify',
+      items: [expect.objectContaining({ text: '回復した方がいい' })],
     }),
   );
 });

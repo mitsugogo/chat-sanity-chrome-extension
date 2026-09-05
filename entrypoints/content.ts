@@ -15,6 +15,8 @@ import { normalizeText } from '../lib/filter/normalize';
 import { AuditSampler, type AuditDecision } from '../lib/filter/audit-sampler';
 import { SessionRuleLearner } from '../lib/filter/session-learning';
 import { CATEGORY_LABELS } from '../lib/settings';
+import { isLocalAiConfigured } from '../lib/settings';
+import { CLASSIFIER_PROMPT_VERSION } from '../lib/local-ai/prompt';
 import { loadSettings, subscribeSettings } from '../lib/storage';
 import type {
   DiagnosticEntry,
@@ -70,12 +72,17 @@ export default defineContentScript({
       hidden: 0,
       blurred: 0,
       lmStudio: settings.lmStudio.enabled ? 'unavailable' : 'disabled',
+      localAi: {
+        activeProvider: 'rules',
+        status: 'unavailable',
+      },
     };
     const processing = new ChatProcessingTracker();
     const cache = new Map<
       string,
       { result: LmClassificationResult; expiresAt: number }
     >();
+    let lastProviderId: LmClassificationResult['providerId'];
     const learner = new SessionRuleLearner();
     const conflict = new ConflictScoreTracker();
     const authorHistory = new AuthorHistory();
@@ -122,19 +129,19 @@ export default defineContentScript({
       const aiSettings = { ...settings.lmStudio };
       const classify = async (items: LmClassificationItem[]) => {
         const response = (await browser.runtime.sendMessage({
-          type: 'lm:classify',
-          endpoint: aiSettings.endpoint,
-          model: aiSettings.model,
+          type: 'local-ai:classify',
           items,
-          timeoutMs: aiSettings.requestTimeoutMs,
-          responseFormat: aiSettings.responseFormat,
         } satisfies RuntimeMessage)) as RuntimeResponse;
-        if (!response.ok || !('results' in response)) {
+        if (!response.ok || !('results' in response) || !('providerId' in response)) {
           throw new Error(
             response.ok ? '分類結果がありません。' : response.error,
           );
         }
-        return response.results;
+        return response.results.map((result) => ({
+          ...result,
+          providerId: response.providerId,
+          latencyMs: response.latencyMs,
+        }));
       };
       return new ClassificationBatchQueue(
         classify,
@@ -198,7 +205,7 @@ export default defineContentScript({
     ) => {
       if (
         settings.debugMode &&
-        (entry.action !== 'allow' || entry.source === 'lm-studio-audit')
+        (entry.action !== 'allow' || entry.aiReason === 'zero-score-audit')
       ) {
         void sendRuntimeMessage({ type: 'debug:add', entry }).catch(
           () => undefined,
@@ -247,7 +254,7 @@ export default defineContentScript({
       result.reasons = [
         ...result.reasons,
         ...auditReasons,
-        `LM Studio: ${category === 'safe' ? '安全' : category === 'spam' ? 'スパム' : category === 'unknown' ? '判定不能' : CATEGORY_LABELS[category]}`,
+        `${ai.providerId === 'chrome-built-in' ? 'Chrome内蔵AI' : 'LM Studio'}: ${category === 'safe' ? '安全' : category === 'spam' ? 'スパム' : category === 'unknown' ? '判定不能' : CATEGORY_LABELS[category]}`,
       ];
       const diagnostic: DiagnosticEntry = {
         id: message.id,
@@ -262,10 +269,12 @@ export default defineContentScript({
           ? { contextAdjustment: result.contextAdjustment }
           : {}),
         ...(flowDebug ? { flow: flowDebug } : {}),
-        source:
-          requestReason === 'zero-score-audit'
-            ? 'lm-studio-audit'
-            : 'lm-studio',
+        source: 'local-ai',
+        ...(ai.providerId ? { aiProvider: ai.providerId } : {}),
+        aiReason: requestReason,
+        ...(typeof ai.latencyMs === 'number'
+          ? { aiLatencyMs: ai.latencyMs }
+          : {}),
         timestamp: message.timestamp,
       };
       renderResult(element, result, diagnostic, settings.debugMode);
@@ -388,9 +397,15 @@ export default defineContentScript({
         now,
       };
       const auditEligible = auditSampler.isEligible(auditInput);
+      const currentCacheKey = lastProviderId
+        ? `${lastProviderId}:${CLASSIFIER_PROMPT_VERSION}:${normalized}`
+        : undefined;
       const cachedEntry =
-        base.needsAi || auditEligible ? cache.get(normalized) : undefined;
-      if (cachedEntry && cachedEntry.expiresAt <= now) cache.delete(normalized);
+        (base.needsAi || auditEligible) && currentCacheKey
+          ? cache.get(currentCacheKey)
+          : undefined;
+      if (cachedEntry && cachedEntry.expiresAt <= now && currentCacheKey)
+        cache.delete(currentCacheKey);
       const cached =
         cachedEntry && cachedEntry.expiresAt > now
           ? cachedEntry.result
@@ -408,7 +423,12 @@ export default defineContentScript({
         );
         flowDebug = finalizeFlow(element, flowGuard, cachedResult, 'cache');
         if (flowStarted) flowMetrics.cacheHit();
-        updateSummary({ ...summary, lmStudio: 'connected' });
+        const providerId = cached.providerId ?? lastProviderId ?? 'lm-studio';
+        updateSummary({
+          ...summary,
+          lmStudio: providerId === 'lm-studio' ? 'connected' : summary.lmStudio,
+          localAi: { activeProvider: providerId, status: 'ready' },
+        });
         applyAiResult(
           element,
           base,
@@ -431,11 +451,11 @@ export default defineContentScript({
       const requestReason: AiRequestReason = base.needsAi
         ? 'uncertain-score'
         : 'zero-score-audit';
-      const shouldUseLmStudio =
+      const shouldUseLocalAi =
         base.needsAi || Boolean(auditDecision?.shouldAudit);
       const samplerForRequest = auditSampler;
 
-      if (!shouldUseLmStudio || !settings.lmStudio.model) {
+      if (!shouldUseLocalAi || !isLocalAiConfigured(settings)) {
         renderResult(element, base, undefined, settings.debugMode);
         record({
           id: message.id,
@@ -500,13 +520,23 @@ export default defineContentScript({
           if (requestReason === 'zero-score-audit')
             samplerForRequest.complete();
           if (!processing.isCurrent(token)) return;
-          updateSummary({ ...summary, lmStudio: 'connected' });
+          lastProviderId = ai.providerId;
+          updateSummary({
+            ...summary,
+            lmStudio:
+              ai.providerId === 'lm-studio' ? 'connected' : summary.lmStudio,
+            localAi: {
+              activeProvider: ai.providerId ?? 'rules',
+              status: 'ready',
+            },
+          });
           if (
             requestReason === 'uncertain-score' &&
             settings.lmStudio.sessionLearning
           )
             learner.observe(normalized, ai);
-          cache.set(normalized, {
+          const key = `${ai.providerId ?? 'lm-studio'}:${CLASSIFIER_PROMPT_VERSION}:${normalized}`;
+          cache.set(key, {
             result: ai,
             expiresAt: Date.now() + CLASSIFICATION_CACHE_TTL_MS,
           });
@@ -533,7 +563,11 @@ export default defineContentScript({
             auditCooldownUntil = Date.now() + AUDIT_FAILURE_COOLDOWN_MS;
           }
           if (!processing.isCurrent(token)) return;
-          updateSummary({ ...summary, lmStudio: 'unavailable' });
+          updateSummary({
+            ...summary,
+            lmStudio: settings.lmStudio.enabled ? 'unavailable' : 'disabled',
+            localAi: { activeProvider: 'rules', status: 'unavailable' },
+          });
           renderResult(element, base, undefined, settings.debugMode);
           record({
             id: message.id,
@@ -546,7 +580,7 @@ export default defineContentScript({
               ...(requestReason === 'zero-score-audit'
                 ? ['Zero-score Audit', ...(auditDecision?.reasons ?? [])]
                 : []),
-              'LM Studioへ接続できないためルール判定を使用',
+              'ローカルAIを利用できないためルール判定を使用',
             ],
             ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
             ...(base.features ? { features: base.features } : {}),
@@ -627,7 +661,9 @@ export default defineContentScript({
         hidden: 0,
         blurred: 0,
         lmStudio: next.lmStudio.enabled ? 'unavailable' : 'disabled',
+        localAi: { activeProvider: 'rules', status: 'unavailable' },
       });
+      lastProviderId = undefined;
       queue = createQueue();
       evaluate = createFilterEngine();
       if (settings.flowChat.enabled) flowBridge.activate();

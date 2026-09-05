@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
-import { classifyWithLmStudio, listModels } from '../lib/lm-studio';
+import { listModels } from '../lib/lm-studio';
+import { LocalAiResolver } from '../lib/local-ai/resolver';
 import { DebugHistoryStore } from '../lib/debug-history';
 import { FlowChatMetricsStore } from '../lib/integrations/flow-chat/metrics';
 import {
@@ -15,6 +16,33 @@ import type {
 } from '../lib/types';
 
 const SESSION_PREFIX = 'session-summary:';
+let resolver: LocalAiResolver | undefined;
+let resolverFingerprint = '';
+
+async function getResolver(): Promise<LocalAiResolver> {
+  const settings = await loadSettings();
+  const nextFingerprint = JSON.stringify({
+    mode: settings.localAiMode,
+    chromeBuiltIn: settings.chromeBuiltIn,
+    lmStudio: settings.lmStudio,
+  });
+  if (!resolver || resolverFingerprint !== nextFingerprint) {
+    resolver?.dispose();
+    resolver = new LocalAiResolver({
+      mode: settings.localAiMode,
+      chromeBuiltIn: settings.chromeBuiltIn,
+      lmStudio: {
+        enabled: settings.lmStudio.enabled,
+        endpoint: settings.lmStudio.endpoint,
+        model: settings.lmStudio.model,
+        timeoutMs: settings.lmStudio.requestTimeoutMs,
+        responseFormat: settings.lmStudio.responseFormat,
+      },
+    });
+    resolverFingerprint = nextFingerprint;
+  }
+  return resolver;
+}
 
 function sessionKey(tabId: number, frameId: number): string {
   return `${SESSION_PREFIX}${tabId}:${frameId}`;
@@ -190,9 +218,18 @@ export default defineBackground(() => {
       return Promise.all([
         getTabSessions(request.tabId),
         getLmStudioStatus(),
-      ]).then<RuntimeResponse>(([sessions, lmStudio]) => ({
+        getResolver().then((current) => current.getStatus()),
+      ]).then<RuntimeResponse>(([sessions, lmStudio, localAiStatus]) => ({
         ok: true,
-        summary: aggregateSessionSummaries(sessions, lmStudio),
+        summary: aggregateSessionSummaries(sessions, lmStudio, {
+          activeProvider: localAiStatus.providerId ?? 'rules',
+          status:
+            localAiStatus.availability === 'available'
+              ? 'ready'
+              : localAiStatus.availability === 'downloading'
+                ? 'downloading'
+                : 'unavailable',
+        }),
       }));
     }
 
@@ -206,15 +243,23 @@ export default defineBackground(() => {
         }));
     }
 
-    if (request.type === 'lm:classify') {
-      return classifyWithLmStudio(
-        request.endpoint,
-        request.model,
-        request.items,
-        request.timeoutMs,
-        request.responseFormat,
-      )
-        .then<RuntimeResponse>((results) => ({ ok: true, results }))
+    if (request.type === 'local-ai:get-status') {
+      return getResolver()
+        .then((current) => current.getStatus())
+        .then<RuntimeResponse>((status) => ({ ok: true, ...status }))
+        .catch<RuntimeResponse>(() => ({
+          ok: true,
+          availability: 'error',
+        }));
+    }
+
+    if (request.type === 'local-ai:classify') {
+      return getResolver()
+        .then((current) => current.classify(request.items))
+        .then<RuntimeResponse>((classification) => ({
+          ok: true,
+          ...classification,
+        }))
         .catch<RuntimeResponse>((error: unknown) => ({
           ok: false,
           error:

@@ -29,7 +29,7 @@ let main: (context: Context) => Promise<void>;
 let invalidate: (() => void) | undefined;
 let settings: SettingsV1;
 const requests: Array<{
-  request: Extract<RuntimeMessage, { type: 'lm:classify' }>;
+  request: Extract<RuntimeMessage, { type: 'local-ai:classify' }>;
   resolve: (response: RuntimeResponse) => void;
 }> = [];
 
@@ -47,10 +47,11 @@ beforeEach(() => {
   settings = structuredClone(DEFAULT_SETTINGS);
   settings.lmStudio.enabled = true;
   settings.lmStudio.model = 'local-test';
+  settings.localAiMode = 'lm-studio';
   mocks.loadSettings.mockResolvedValue(settings);
   mocks.subscribeSettings.mockReturnValue(vi.fn());
   mocks.sendMessage.mockImplementation((message) => {
-    if (message.type === 'lm:classify')
+    if (message.type === 'local-ai:classify')
       return new Promise((resolve) =>
         requests.push({ request: message, resolve }),
       );
@@ -91,6 +92,8 @@ function resolveRequest(index: number, score: number) {
   if (!pending) throw new Error('AI request missing');
   pending.resolve({
     ok: true,
+    providerId: 'lm-studio',
+    latencyMs: 50,
     results: pending.request.items.map((item) => ({
       id: item.id,
       category: 'backseat',
@@ -293,7 +296,6 @@ describe('content integration', () => {
     changeSettings(next);
     await vi.advanceTimersByTimeAsync(200);
     expect(requests).toHaveLength(2);
-    expect(requests[1]?.request.model).toBe('new-local');
     expect(requests[1]?.request.items[0]?.id).not.toBe(
       requests[0]?.request.items[0]?.id,
     );
@@ -360,7 +362,9 @@ describe('content integration', () => {
       expect.objectContaining({
         type: 'debug:add',
         entry: expect.objectContaining({
-          source: 'lm-studio-audit',
+          source: 'local-ai',
+          aiProvider: 'lm-studio',
+          aiReason: 'zero-score-audit',
           reasons: expect.arrayContaining(['Zero-score Audit', '急かす表現']),
         }),
       }),

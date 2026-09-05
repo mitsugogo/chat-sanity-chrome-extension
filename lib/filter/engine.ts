@@ -7,7 +7,7 @@ import type {
   LmClassificationResult,
   SettingsV1,
 } from '../types';
-import { CATEGORY_LABELS } from '../settings';
+import { CATEGORY_LABELS, isLocalAiConfigured } from '../settings';
 import { normalizeText } from './normalize';
 import { isObviouslySafe } from './obvious-safe';
 import { prefilter } from './prefilter';
@@ -20,7 +20,7 @@ export interface FilterContext {
   categoryConflict?: Partial<Record<FilterCategory, number>>;
   sameAuthorRecent?: string[];
   recentRiskyMessages?: string[];
-  /** Optional stream participant names; never forwarded to LM Studio. */
+  /** Optional stream participant names; never forwarded to a local AI provider. */
   targetNames?: string[];
 }
 
@@ -96,7 +96,7 @@ export function createFilterEngine() {
     const candidates = prefilter(text);
     const ruleMatches = matchRules(text, context?.targetNames);
     if (
-      settings.lmStudio.enabled &&
+      isLocalAiConfigured(settings) &&
       settings.lmStudio.sessionLearning &&
       learned &&
       learned.category !== 'safe' &&
@@ -180,7 +180,7 @@ export function createFilterEngine() {
     score = clamp(score);
     const action = actionForResult(score, categories, profile);
     const needsAi =
-      settings.lmStudio.enabled &&
+      isLocalAiConfigured(settings) &&
       score >= settings.lmStudio.uncertainMin &&
       score <= settings.lmStudio.uncertainMax;
     const finalReasons =
@@ -225,14 +225,14 @@ export function mergeAiResult(
   if (
     (!base.needsAi && !isEligibleAudit) ||
     !settings.enabled ||
-    !settings.lmStudio.enabled
+    !isLocalAiConfigured(settings)
   )
     return base;
   if (ai.category === 'unknown')
     return {
       ...base,
       needsAi: false,
-      reasons: [...base.reasons, 'LM Studioが判定不能を返しました'],
+      reasons: [...base.reasons, 'ローカルAIが判定不能を返しました'],
     };
   if (
     ai.category === 'spam'
@@ -257,7 +257,7 @@ export function mergeAiResult(
     return { ...base, needsAi: false };
   const reasons = [
     ...base.reasons,
-    `LM Studioによる${categoryLabel(ai.category)}判定`,
+    `ローカルAIによる${categoryLabel(ai.category)}判定`,
   ];
   const adjusted = applyContextModifier(score, [ai.category], context, reasons);
   score = clamp(adjusted.score);

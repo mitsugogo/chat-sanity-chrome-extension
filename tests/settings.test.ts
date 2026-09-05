@@ -21,12 +21,24 @@ describe('AI settings migration', () => {
       },
     });
     expect(settings.debugMode).toBe(false);
+    expect(settings.localAiMode).toBe('auto');
+    expect(settings.chromeBuiltIn).toEqual({ enabled: true });
     expect(settings.flowChat).toEqual({
       enabled: false,
       exclusionLevel: 'blur',
       customThreshold: 0.75,
       useLlmFastPath: false,
     });
+  });
+
+  it('Local AIの不正なmodeとChrome設定を安全な既定値へ戻す', () => {
+    const settings = normalizeSettings({
+      schemaVersion: 1,
+      localAiMode: 'remote-cloud',
+      chromeBuiltIn: { enabled: 'yes' },
+    });
+    expect(settings.localAiMode).toBe('auto');
+    expect(settings.chromeBuiltIn.enabled).toBe(true);
   });
 
   it('Zero-score Audit設定を安全な範囲へ補完する', () => {

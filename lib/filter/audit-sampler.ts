@@ -1,4 +1,5 @@
 import type { FilterResult, SettingsV1 } from '../types';
+import { isLocalAiConfigured } from '../settings';
 import { matchAuditSignals } from './audit-signals';
 
 const FREQUENCY_WINDOW_MS = 10_000;
@@ -69,9 +70,8 @@ export class AuditSampler {
     const { base, settings, normalized } = input;
     return (
       settings.enabled &&
-      settings.lmStudio.enabled &&
+      isLocalAiConfigured(settings) &&
       settings.lmStudio.zeroScoreAudit.enabled &&
-      Boolean(settings.lmStudio.model) &&
       Boolean(normalized) &&
       base.ruleDisposition === 'unmatched' &&
       base.score === 0

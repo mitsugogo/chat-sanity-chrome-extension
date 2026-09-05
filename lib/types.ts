@@ -22,6 +22,18 @@ export type FilterAction = 'allow' | 'dim' | 'blur' | 'hide';
 export type RuleDisposition =
   'excluded' | 'explicit-safe' | 'matched' | 'unmatched';
 export type AiRequestReason = 'uncertain-score' | 'zero-score-audit';
+export type LocalAiProviderId = 'chrome-built-in' | 'lm-studio';
+export type LocalAiMode =
+  | 'auto'
+  | 'chrome-built-in'
+  | 'lm-studio'
+  | 'disabled';
+export type LocalAiAvailability =
+  | 'available'
+  | 'downloadable'
+  | 'downloading'
+  | 'unavailable'
+  | 'error';
 export type PresetId = 'normal' | 'event' | 'peace';
 export type FilterMode = 'threshold' | 'allow' | 'dim' | 'blur' | 'hide';
 export type FlowChatExclusionLevel = 'blur' | 'hide' | 'custom';
@@ -139,6 +151,10 @@ export interface SettingsV1 {
   profiles: Record<PresetId, PresetProfile>;
   blockedWords: string[];
   allowedWords: string[];
+  localAiMode: LocalAiMode;
+  chromeBuiltIn: {
+    enabled: boolean;
+  };
   lmStudio: LmStudioSettings;
   flowChat: FlowChatSettings;
 }
@@ -154,7 +170,10 @@ export interface DiagnosticEntry {
   features?: string[];
   contextAdjustment?: number;
   flow?: FlowChatDebugInfo;
-  source: 'rules' | 'lm-studio' | 'lm-studio-audit' | 'fallback';
+  source: 'rules' | 'local-ai' | 'fallback';
+  aiProvider?: LocalAiProviderId;
+  aiReason?: AiRequestReason;
+  aiLatencyMs?: number;
   timestamp: number;
 }
 
@@ -163,6 +182,10 @@ export interface SessionSummary {
   hidden: number;
   blurred: number;
   lmStudio: 'disabled' | 'connected' | 'unavailable';
+  localAi: {
+    activeProvider: LocalAiProviderId | 'rules';
+    status: 'ready' | 'downloading' | 'unavailable';
+  };
 }
 
 export interface LmClassificationItem {
@@ -180,6 +203,8 @@ export interface LmClassificationResult {
   confidence?: number;
   /** Legacy LM Studio response field. New clients should return action/confidence. */
   score?: number;
+  providerId?: LocalAiProviderId;
+  latencyMs?: number;
 }
 
 export type RuntimeMessage =
@@ -194,19 +219,26 @@ export type RuntimeMessage =
   | { type: 'flow:metrics-clear-frame' }
   | { type: 'lm:list-models'; endpoint: string }
   | {
-      type: 'lm:classify';
-      endpoint: string;
-      model: string;
+      type: 'local-ai:classify';
       items: LmClassificationItem[];
-      timeoutMs: number;
-      responseFormat?: LmResponseFormat;
-    };
+    }
+  | { type: 'local-ai:get-status' };
 
 export type RuntimeResponse =
   | { ok: true }
   | { ok: true; summary: SessionSummary }
   | { ok: true; models: string[] }
-  | { ok: true; results: LmClassificationResult[] }
+  | {
+      ok: true;
+      results: LmClassificationResult[];
+      providerId: LocalAiProviderId;
+      latencyMs: number;
+    }
+  | {
+      ok: true;
+      availability: LocalAiAvailability;
+      providerId?: LocalAiProviderId;
+    }
   | {
       ok: true;
       entries: DiagnosticEntry[];

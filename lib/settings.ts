@@ -134,6 +134,10 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
     customThreshold: 0.75,
     useLlmFastPath: false,
   },
+  localAiMode: 'auto',
+  chromeBuiltIn: {
+    enabled: true,
+  },
 };
 
 const cloneDefaults = (): SettingsV1 => structuredClone(DEFAULT_SETTINGS);
@@ -172,6 +176,15 @@ export function normalizeSettings(value: unknown): SettingsV1 {
       ),
     },
     lmStudio: normalizeLmStudio(partial.lmStudio),
+    localAiMode: isLocalAiMode(partial.localAiMode)
+      ? partial.localAiMode
+      : DEFAULT_SETTINGS.localAiMode,
+    chromeBuiltIn: {
+      enabled:
+        typeof partial.chromeBuiltIn?.enabled === 'boolean'
+          ? partial.chromeBuiltIn.enabled
+          : DEFAULT_SETTINGS.chromeBuiltIn.enabled,
+    },
     flowChat: normalizeFlowChat(partial.flowChat),
     blockedWords: cleanWords(partial.blockedWords),
     allowedWords: cleanWords(partial.allowedWords),
@@ -294,6 +307,15 @@ function isPresetId(value: unknown): value is PresetId {
   return value === 'normal' || value === 'event' || value === 'peace';
 }
 
+function isLocalAiMode(value: unknown): value is SettingsV1['localAiMode'] {
+  return (
+    value === 'auto' ||
+    value === 'chrome-built-in' ||
+    value === 'lm-studio' ||
+    value === 'disabled'
+  );
+}
+
 function finiteClamp(
   value: unknown,
   fallback: number,
@@ -392,4 +414,13 @@ export function normalizeLmStudio(
         ? value.responseFormat
         : 'json_schema',
   };
+}
+
+export function isLocalAiConfigured(settings: SettingsV1): boolean {
+  if (settings.localAiMode === 'disabled') return false;
+  const chromeEnabled = settings.chromeBuiltIn.enabled;
+  const lmEnabled = settings.lmStudio.enabled && Boolean(settings.lmStudio.model);
+  if (settings.localAiMode === 'chrome-built-in') return chromeEnabled;
+  if (settings.localAiMode === 'lm-studio') return lmEnabled;
+  return chromeEnabled || lmEnabled;
 }

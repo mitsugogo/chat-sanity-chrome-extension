@@ -21,6 +21,7 @@ const EMPTY_SUMMARY: SessionSummary = {
   hidden: 0,
   blurred: 0,
   lmStudio: 'disabled',
+  localAi: { activeProvider: 'rules', status: 'unavailable' },
 };
 
 export default function App() {
@@ -52,6 +53,7 @@ export default function App() {
             lmStudio: nextSettings.lmStudio.enabled
               ? 'unavailable'
               : 'disabled',
+            localAi: { activeProvider: 'rules', status: 'unavailable' },
           });
         }
       }
@@ -72,7 +74,14 @@ export default function App() {
   const statusText = summary.active
     ? 'YouTubeチャットで動作中'
     : '対応するチャットを開いてください';
-  const aiConnected = summary.lmStudio === 'connected';
+  const aiConnected = summary.localAi.status === 'ready';
+  const aiEnabled = settings.localAiMode !== 'disabled';
+  const activeProviderLabel =
+    summary.localAi.activeProvider === 'chrome-built-in'
+      ? 'Chrome 内蔵AI'
+      : summary.localAi.activeProvider === 'lm-studio'
+        ? 'LM Studio'
+        : 'ローカルAI';
 
   return (
     <main className="popup-shell" aria-busy={loading}>
@@ -132,14 +141,16 @@ export default function App() {
         </span>
       </section>
 
-      {settings.lmStudio.enabled ? (
+      {aiEnabled ? (
         <section className="ai-status" aria-label="ローカルAIの状態">
           <span
             className={`status-dot ${aiConnected ? 'status-dot--online' : 'status-dot--warning'}`}
           />
           <div>
             <strong>
-              {aiConnected ? 'LM Studio 接続済み' : 'LM Studio 未接続'}
+              {aiConnected
+                ? `${activeProviderLabel} 利用可能`
+                : 'ローカルAI 利用不可'}
             </strong>
             <span>曖昧なコメントのみ判定</span>
           </div>

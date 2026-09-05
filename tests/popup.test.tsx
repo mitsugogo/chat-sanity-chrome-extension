@@ -37,7 +37,13 @@ beforeEach(() => {
   mocks.query.mockResolvedValue([{ id: 10 }]);
   mocks.sendMessage.mockResolvedValue({
     ok: true,
-    summary: { active: true, hidden: 24, blurred: 11, lmStudio: 'connected' },
+    summary: {
+      active: true,
+      hidden: 24,
+      blurred: 11,
+      lmStudio: 'connected',
+      localAi: { activeProvider: 'lm-studio', status: 'ready' },
+    },
   });
   mocks.set.mockResolvedValue(undefined);
 });
@@ -49,7 +55,7 @@ describe('popup', () => {
       await screen.findByText('YouTubeチャットで動作中'),
     ).toBeInTheDocument();
     expect(screen.getByText('24')).toBeInTheDocument();
-    expect(screen.getByText('LM Studio 接続済み')).toBeInTheDocument();
+    expect(screen.getByText('LM Studio 利用可能')).toBeInTheDocument();
     expect(mocks.sendMessage).toHaveBeenCalledWith({
       type: 'session:get-summary',
       tabId: 10,
@@ -70,7 +76,9 @@ describe('popup', () => {
   });
 
   it('ローカルAIが無効な場合はAI状態を表示しない', async () => {
-    mocks.get.mockResolvedValue({ settings: DEFAULT_SETTINGS });
+    mocks.get.mockResolvedValue({
+      settings: { ...DEFAULT_SETTINGS, localAiMode: 'disabled' },
+    });
     render(<App />);
     await screen.findByText('YouTubeチャットで動作中');
     expect(

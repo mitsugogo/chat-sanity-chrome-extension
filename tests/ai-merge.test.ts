@@ -42,8 +42,10 @@ describe('AI結果と設定の合成', () => {
     expect(createFilterEngine()(message, value, learned).action).toBe('allow');
     value.profiles.event.categories.personal_attack.enabled = true;
     value.lmStudio.enabled = false;
+    value.localAiMode = 'disabled';
     expect(createFilterEngine()(message, value, learned).action).toBe('allow');
     value.lmStudio.enabled = true;
+    value.localAiMode = 'lm-studio';
     value.lmStudio.sessionLearning = false;
     expect(createFilterEngine()(message, value, learned).action).toBe('allow');
   });

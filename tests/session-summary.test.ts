@@ -14,6 +14,7 @@ describe('session summary aggregation', () => {
               hidden: 4,
               blurred: 2,
               lmStudio: 'unavailable',
+              localAi: { activeProvider: 'rules', status: 'unavailable' },
             },
             updatedAt: 1,
           },
@@ -25,6 +26,7 @@ describe('session summary aggregation', () => {
               hidden: 1,
               blurred: 3,
               lmStudio: 'connected',
+              localAi: { activeProvider: 'lm-studio', status: 'ready' },
             },
             updatedAt: 2,
           },
@@ -36,6 +38,7 @@ describe('session summary aggregation', () => {
       hidden: 5,
       blurred: 5,
       lmStudio: 'connected',
+      localAi: { activeProvider: 'lm-studio', status: 'ready' },
     });
   });
 
@@ -45,6 +48,7 @@ describe('session summary aggregation', () => {
       hidden: 0,
       blurred: 0,
       lmStudio: 'connected',
+      localAi: { activeProvider: 'rules', status: 'unavailable' },
     });
   });
 });
