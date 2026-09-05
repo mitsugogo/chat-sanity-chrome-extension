@@ -36,6 +36,20 @@ export function isObviouslySafe(text: string): boolean {
   if (/^おもしろい[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
   if (/^帰れるかな[?？!！]*$/u.test(value)) return true;
   if (/^いける(?:いける)?[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
+  if (
+    /^(?:(?:いけ|行け)(?:(?:いけ|行け)?[〜～ー]+|え{2,})|急げ[〜～ー]+)[ｗw草笑!！?？]*$/u.test(
+      value,
+    )
+  )
+    return true;
+  // A clearly named positive goal followed by 「いけ」 is cheering, not an
+  // instruction about the streamer's next action.
+  if (
+    /^(?:優勝|勝利|決勝|ゴール|てっぺん|世界一)(?:まで|へ)?(?:いけ|行け)[ｗw草笑!！?？〜～ー]*$/u.test(
+      value,
+    )
+  )
+    return true;
   if (/^クソ(?:鳥|ドリ)か[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
   if (/^動き(?:も|が)いい[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
   // A bare 「何してんの」 is an ambiguous question and remains eligible for

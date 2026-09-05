@@ -26,6 +26,8 @@ describe('日本語チャットルール', () => {
     ['テンポ悪い', 'complaint'],
     ['別枠でボスを見つけたらしい', 'pigeon'],
     ['ネタバレだけど犯人は彼です', 'spoiler'],
+    ['しねよ', 'personal_attack'],
+    ['お前しね', 'personal_attack'],
   ] as const)('「%s」を%sとして検出する', (text, category) => {
     expect(categoriesFor(text)).toContain(category);
   });
@@ -55,9 +57,23 @@ describe('日本語チャットルール', () => {
     'みんな仲良くしよう',
     '指示コメやめよう',
     '学校に行けるかな',
+    'いけー！ ',
+    'いけいけー！',
+    'いけええええ',
+    '急げー！',
+    '優勝いけー！',
+    '○○だしねぇ',
+    '○○だしね',
   ])('文脈のない一般的な表現「%s」を断定的に検出しない', (text) => {
     expect(categoriesFor(text)).toEqual([]);
   });
+
+  it.each(['急げ', '早く急げー！'])(
+    '催促「%s」はbackseatとして検出を維持する',
+    (text) => {
+      expect(categoriesFor(text)).toContain('backseat');
+    },
+  );
 
   it('曖昧な比較・助言・展開示唆はAI判定の対象にできるスコアにする', () => {
     const scores = [

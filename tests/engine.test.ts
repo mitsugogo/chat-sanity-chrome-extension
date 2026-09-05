@@ -37,11 +37,11 @@ describe('filter engine', () => {
   it('配信者とモデレーターを常に許可する', () => {
     const evaluate = createFilterEngine();
     expect(
-      evaluate(createMessage('死ね', { isOwner: true }), settings()).action,
-    ).toBe('allow');
+      evaluate(createMessage('死ね', { isOwner: true }), settings()),
+    ).toMatchObject({ action: 'allow', ruleDisposition: 'excluded' });
     expect(
-      evaluate(createMessage('死ね', { isModerator: true }), settings()).action,
-    ).toBe('allow');
+      evaluate(createMessage('死ね', { isModerator: true }), settings()),
+    ).toMatchObject({ action: 'allow', ruleDisposition: 'excluded' });
   });
 
   it('許可語句をブロック語句より優先する', () => {
@@ -51,6 +51,9 @@ describe('filter engine', () => {
     expect(evaluate(createMessage('これはネタです 死ね'), value).action).toBe(
       'allow',
     );
+    expect(
+      evaluate(createMessage('これはネタです 死ね'), value).ruleDisposition,
+    ).toBe('explicit-safe');
 
     function evaluate(message: ChatMessage, current: SettingsV1) {
       return createFilterEngine()(message, current);
@@ -65,6 +68,7 @@ describe('filter engine', () => {
       value,
     );
     expect(result).toMatchObject({ score: 1, action: 'hide', needsAi: false });
+    expect(result.ruleDisposition).toBe('matched');
   });
 
   it('箱ゲープリセットで曖昧な指示をAI対象にする', () => {
@@ -124,7 +128,70 @@ describe('filter engine', () => {
       categories: ['safe'],
       action: 'allow',
       reasons: ['ルールに一致しませんでした'],
+      ruleDisposition: 'unmatched',
     });
+  });
+
+  it('婉曲的な催促を0点のルール未一致として区別する', () => {
+    expect(
+      createFilterEngine()(createMessage('さっさと進んだら？'), settings()),
+    ).toMatchObject({
+      score: 0,
+      action: 'allow',
+      needsAi: false,
+      ruleDisposition: 'unmatched',
+    });
+  });
+
+  it.each([
+    'いけー！ ',
+    'いけいけー！',
+    'いけええええ',
+    '急げー！',
+    '行けー！',
+    '優勝いけー！',
+    '世界一まで行けー！',
+  ])('前向きな目標への応援「%s」を明示安全として扱う', (text) => {
+    expect(createFilterEngine()(createMessage(text), settings())).toMatchObject(
+      {
+        score: 0,
+        action: 'allow',
+        ruleDisposition: 'explicit-safe',
+      },
+    );
+  });
+
+  it.each(['○○だしねぇ', '○○だしね'])(
+    '理由・同意だけの「%s」を0点のまま許可する',
+    (text) => {
+      expect(
+        createFilterEngine()(createMessage(text), settings()),
+      ).toMatchObject({
+        score: 0,
+        action: 'allow',
+        ruleDisposition: 'unmatched',
+      });
+    },
+  );
+
+  it.each(['急げ', '早く急げー！'])(
+    '単独掛け声ではない催促「%s」は安全扱いへ逃がさない',
+    (text) => {
+      expect(
+        createFilterEngine()(createMessage(text), settings()).ruleDisposition,
+      ).toBe('matched');
+    },
+  );
+
+  it.each([
+    '休憩したら？',
+    '一回戻ったら？',
+    'そろそろ休んでもいいかも',
+    'これ使えば？',
+  ])('弱い監査シグナル「%s」だけでは表示を変えない', (text) => {
+    expect(createFilterEngine()(createMessage(text), settings()).action).toBe(
+      'allow',
+    );
   });
 
   it('同一ユーザーの同文連投をスパム判定する', () => {

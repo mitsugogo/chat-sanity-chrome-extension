@@ -120,6 +120,7 @@ describe('YouTube renderer', () => {
       reasons: ['命令口調'],
       action: 'hide',
       needsAi: false,
+      ruleDisposition: 'matched',
     });
     expect(item).toHaveClass('chatsanity-hidden');
     expect(item.querySelector('#message')).toHaveTextContent(
@@ -155,6 +156,7 @@ describe('YouTube renderer', () => {
         reasons: ['行動を指示する表現'],
         action: 'dim',
         needsAi: false,
+        ruleDisposition: 'matched',
       },
       undefined,
       true,
@@ -173,6 +175,7 @@ describe('YouTube renderer', () => {
       reasons: ['ルールに一致しませんでした'],
       action: 'allow',
       needsAi: false,
+      ruleDisposition: 'explicit-safe',
     });
     expect(
       item.querySelector('.chatsanity-debug-score'),

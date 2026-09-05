@@ -614,164 +614,198 @@ export default function App() {
                   label="LM Studioを使用する"
                 />
               </div>
-              <label className="field">
-                <span>エンドポイント</span>
-                <input
-                  value={settings.lmStudio.endpoint}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      lmStudio: {
-                        ...current.lmStudio,
-                        endpoint: event.target.value,
-                      },
-                    }))
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>モデル</span>
-                <select
-                  value={settings.lmStudio.model}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      lmStudio: {
-                        ...current.lmStudio,
-                        model: event.target.value,
-                      },
-                    }))
-                  }
-                >
-                  <option value="">モデルを選択</option>
-                  {selectedModelOptions.map((model) => (
-                    <option key={model}>{model}</option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={connection === 'testing'}
-                onClick={() => void testConnection(false)}
-              >
-                接続を確認
-              </button>
-              <div className="connection-row">
-                <span
-                  className={`status-dot ${connection === 'online' ? 'status-dot--online' : connection === 'offline' ? 'status-dot--warning' : ''}`}
-                />
-                <span>{connectionMessage}</span>
-              </div>
-              <label className="field">
-                <span>AI応答形式</span>
-                <select
-                  value={settings.lmStudio.responseFormat}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (
-                      value === 'json_schema' ||
-                      value === 'json_object' ||
-                      value === 'text'
-                    ) {
+              {settings.lmStudio.enabled ? (
+                <>
+                  <label className="field">
+                    <span>エンドポイント</span>
+                    <input
+                      value={settings.lmStudio.endpoint}
+                      onChange={(event) =>
+                        setSettings((current) => ({
+                          ...current,
+                          lmStudio: {
+                            ...current.lmStudio,
+                            endpoint: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>モデル</span>
+                    <select
+                      value={settings.lmStudio.model}
+                      onChange={(event) =>
+                        setSettings((current) => ({
+                          ...current,
+                          lmStudio: {
+                            ...current.lmStudio,
+                            model: event.target.value,
+                          },
+                        }))
+                      }
+                    >
+                      <option value="">モデルを選択</option>
+                      {selectedModelOptions.map((model) => (
+                        <option key={model}>{model}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={connection === 'testing'}
+                    onClick={() => void testConnection(false)}
+                  >
+                    接続を確認
+                  </button>
+                  <div className="connection-row">
+                    <span
+                      className={`status-dot ${connection === 'online' ? 'status-dot--online' : connection === 'offline' ? 'status-dot--warning' : ''}`}
+                    />
+                    <span>{connectionMessage}</span>
+                  </div>
+                  <label className="field">
+                    <span>AI応答形式</span>
+                    <select
+                      value={settings.lmStudio.responseFormat}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (
+                          value === 'json_schema' ||
+                          value === 'json_object' ||
+                          value === 'text'
+                        ) {
+                          setSettings((current) => ({
+                            ...current,
+                            lmStudio: {
+                              ...current.lmStudio,
+                              responseFormat: value,
+                            },
+                          }));
+                        }
+                      }}
+                    >
+                      <option value="json_schema">JSON Schema（推奨）</option>
+                      <option value="json_object">JSON Object（互換）</option>
+                      <option value="text">テキストからJSONを検証</option>
+                    </select>
+                  </label>
+                  <AiNumber
+                    label="AI応答の待ち時間（秒）"
+                    value={settings.lmStudio.requestTimeoutMs / 1000}
+                    min={1}
+                    max={60}
+                    step={1}
+                    onChange={(value) =>
                       setSettings((current) => ({
                         ...current,
                         lmStudio: {
                           ...current.lmStudio,
-                          responseFormat: value,
+                          requestTimeoutMs: value * 1000,
                         },
-                      }));
+                      }))
                     }
-                  }}
-                >
-                  <option value="json_schema">JSON Schema（推奨）</option>
-                  <option value="json_object">JSON Object（互換）</option>
-                  <option value="text">テキストからJSONを検証</option>
-                </select>
-              </label>
-              <AiNumber
-                label="AI応答の待ち時間（秒）"
-                value={settings.lmStudio.requestTimeoutMs / 1000}
-                min={1}
-                max={60}
-                step={1}
-                onChange={(value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    lmStudio: {
-                      ...current.lmStudio,
-                      requestTimeoutMs: value * 1000,
-                    },
-                  }))
-                }
-              />
-              <AiNumber
-                label="1回に送る最大件数"
-                value={settings.lmStudio.batchSize}
-                min={1}
-                max={20}
-                step={1}
-                onChange={(value) =>
-                  setSettings((current) => ({
-                    ...current,
-                    lmStudio: { ...current.lmStudio, batchSize: value },
-                  }))
-                }
-              />
-              <div className="ai-condition">
-                <strong>AIの使用条件</strong>
-                <p>
-                  ルールスコア0.35〜0.80の曖昧なコメントだけを対象にします。
-                </p>
-                <AiNumber
-                  label="AI対象の下限スコア"
-                  value={settings.lmStudio.uncertainMin}
-                  min={0.35}
-                  max={0.8}
-                  step={0.05}
-                  onChange={(value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      lmStudio: { ...current.lmStudio, uncertainMin: value },
-                    }))
-                  }
-                />
-                <AiNumber
-                  label="AI対象の上限スコア"
-                  value={settings.lmStudio.uncertainMax}
-                  min={0.35}
-                  max={0.8}
-                  step={0.05}
-                  onChange={(value) =>
-                    setSettings((current) => ({
-                      ...current,
-                      lmStudio: { ...current.lmStudio, uncertainMax: value },
-                    }))
-                  }
-                />
-                <p>
-                  500msでルール結果を表示し、AIの応答が届けば更新します。遅い場合は件数を減らすか待ち時間を延ばしてください。形式エラーの場合は互換形式を試せます。
-                </p>
-              </div>
-              <div className="setting-row">
-                <strong>閲覧中のAI判定を一時ルールに活用</strong>
-                <Switch
-                  label="閲覧中のAI判定を一時ルールに活用"
-                  checked={settings.lmStudio.sessionLearning}
-                  onChange={(sessionLearning) =>
-                    setSettings((current) => ({
-                      ...current,
-                      lmStudio: { ...current.lmStudio, sessionLearning },
-                    }))
-                  }
-                />
-              </div>
-              <p>
-                強い問題と判定された同文を再利用します。異なる3本文で一致し、文節単独でも同じカテゴリの高スコアをAIが返した文節だけを一時ルールへ昇格します。再読み込み・設定変更でリセットされ、保存しません。
-              </p>
-              <p className="privacy-note">
-                コメントはローカル環境内だけで処理されます
-              </p>
+                  />
+                  <AiNumber
+                    label="1回に送る最大件数"
+                    value={settings.lmStudio.batchSize}
+                    min={1}
+                    max={20}
+                    step={1}
+                    onChange={(value) =>
+                      setSettings((current) => ({
+                        ...current,
+                        lmStudio: { ...current.lmStudio, batchSize: value },
+                      }))
+                    }
+                  />
+                  <div className="ai-condition">
+                    <strong>AIの使用条件</strong>
+                    <p>
+                      通常はルールスコア0.35〜0.80の曖昧なコメントを対象にします。
+                    </p>
+                    <AiNumber
+                      label="AI対象の下限スコア"
+                      value={settings.lmStudio.uncertainMin}
+                      min={0.35}
+                      max={0.8}
+                      step={0.05}
+                      onChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          lmStudio: {
+                            ...current.lmStudio,
+                            uncertainMin: value,
+                          },
+                        }))
+                      }
+                    />
+                    <AiNumber
+                      label="AI対象の上限スコア"
+                      value={settings.lmStudio.uncertainMax}
+                      min={0.35}
+                      max={0.8}
+                      step={0.05}
+                      onChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          lmStudio: {
+                            ...current.lmStudio,
+                            uncertainMax: value,
+                          },
+                        }))
+                      }
+                    />
+                    <p>
+                      500msでルール結果を表示し、AIの応答が届けば更新します。遅い場合は件数を減らすか待ち時間を延ばしてください。形式エラーの場合は互換形式を試せます。
+                    </p>
+                  </div>
+                  <div className="setting-row">
+                    <span>
+                      <strong>未判定コメントをときどきAIで再確認</strong>
+                      <small>
+                        ルールに一致しない0点コメントの一部だけを監査します
+                      </small>
+                    </span>
+                    <Switch
+                      label="未判定コメントをときどきAIで再確認"
+                      checked={settings.lmStudio.zeroScoreAudit.enabled}
+                      onChange={(enabled) =>
+                        setSettings((current) => ({
+                          ...current,
+                          lmStudio: {
+                            ...current.lmStudio,
+                            zeroScoreAudit: {
+                              ...current.lmStudio.zeroScoreAudit,
+                              enabled,
+                            },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="setting-row">
+                    <strong>閲覧中のAI判定を一時ルールに活用</strong>
+                    <Switch
+                      label="閲覧中のAI判定を一時ルールに活用"
+                      checked={settings.lmStudio.sessionLearning}
+                      onChange={(sessionLearning) =>
+                        setSettings((current) => ({
+                          ...current,
+                          lmStudio: { ...current.lmStudio, sessionLearning },
+                        }))
+                      }
+                    />
+                  </div>
+                  <p>
+                    強い問題と判定された同文を再利用します。異なる3本文で一致し、文節単独でも同じカテゴリの高スコアをAIが返した文節だけを一時ルールへ昇格します。再読み込み・設定変更でリセットされ、保存しません。
+                  </p>
+                  <p className="privacy-note">
+                    コメントはローカル環境内だけで処理されます
+                  </p>
+                </>
+              ) : null}
             </section>
 
             <section className="panel diagnostic-panel" id="diagnostic">
@@ -936,7 +970,9 @@ function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
           ? 'ルール'
           : entry.source === 'lm-studio'
             ? 'ローカルAI'
-            : 'ルール（AI失敗）'}
+            : entry.source === 'lm-studio-audit'
+              ? 'ローカルAI（Zero-score Audit）'
+              : 'ルール（AI失敗）'}
       </p>
       <strong>判定理由</strong>
       <ul>
@@ -1089,6 +1125,7 @@ function FlowMetricsSummary({ metrics }: { metrics: FlowChatMetricsSnapshot }) {
 
 function sourceLabel(source: DiagnosticEntry['source']): string {
   if (source === 'lm-studio') return 'ローカルAI';
+  if (source === 'lm-studio-audit') return 'ローカルAI（Zero-score Audit）';
   if (source === 'fallback') return 'ルール（AI失敗）';
   return 'ルール';
 }

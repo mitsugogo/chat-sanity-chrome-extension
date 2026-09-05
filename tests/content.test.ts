@@ -64,6 +64,7 @@ afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
   document.body.innerHTML = '';
+  vi.restoreAllMocks();
 });
 function append(id: string, text = '回復した方がいい') {
   const element = document.createElement('yt-live-chat-text-message-renderer');
@@ -342,6 +343,66 @@ describe('content integration', () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(requests).toHaveLength(2);
     expect(third).toHaveClass('chatsanity-pending');
+  });
+  it('0点のルール未一致を抽選で監査し同文はキャッシュから再利用する', async () => {
+    settings.debugMode = true;
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const first = append('audit-first', 'さっさと進んだら？');
+    await start();
+    expect(first).toHaveClass('chatsanity-pending');
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(requests).toHaveLength(1);
+    resolveRequest(0, 0.95);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(first).toHaveClass('chatsanity-hidden');
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'debug:add',
+        entry: expect.objectContaining({
+          source: 'lm-studio-audit',
+          reasons: expect.arrayContaining(['Zero-score Audit', '急かす表現']),
+        }),
+      }),
+    );
+
+    const second = append('audit-second', 'さっさと進んだら？');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(requests).toHaveLength(1);
+    expect(second).toHaveClass('chatsanity-hidden');
+  });
+
+  it('監査抽選から外れた0点コメントは待機表示せず許可する', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    const item = append('audit-skip', 'さっさと進んだら？');
+    await start();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(requests).toHaveLength(0);
+    expect(item).not.toHaveClass('chatsanity-pending', 'chatsanity-hidden');
+  });
+
+  it('許可語句に一致した0点コメントは監査しない', async () => {
+    settings.allowedWords = ['さっさと進んだら？'];
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const item = append('audit-safe', 'さっさと進んだら？');
+    await start();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(requests).toHaveLength(0);
+    expect(item).not.toHaveClass('chatsanity-pending', 'chatsanity-hidden');
+  });
+  it('監査通信の失敗はルール表示へ戻し30秒間再試行しない', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const first = append('audit-failure', 'さっさと進んだら？');
+    await start();
+    await vi.advanceTimersByTimeAsync(200);
+    requests[0]?.resolve({ ok: false, error: 'offline' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(first).not.toHaveClass('chatsanity-pending', 'chatsanity-hidden');
+
+    const second = append('audit-cooldown', 'いい加減気づいて');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(requests).toHaveLength(1);
+    expect(second).not.toHaveClass('chatsanity-pending', 'chatsanity-hidden');
   });
   it('AI無効化後に遅い応答が届いてもルール表示を維持する', async () => {
     const item = append('youtube-id');

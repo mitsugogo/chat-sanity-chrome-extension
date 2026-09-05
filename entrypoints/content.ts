@@ -12,6 +12,7 @@ import {
   type FilterContext,
 } from '../lib/filter/engine';
 import { normalizeText } from '../lib/filter/normalize';
+import { AuditSampler, type AuditDecision } from '../lib/filter/audit-sampler';
 import { SessionRuleLearner } from '../lib/filter/session-learning';
 import { CATEGORY_LABELS } from '../lib/settings';
 import { loadSettings, subscribeSettings } from '../lib/storage';
@@ -26,6 +27,7 @@ import type {
   SessionSummary,
   FlowChatDebugInfo,
   FlowChatDecisionSource,
+  AiRequestReason,
 } from '../lib/types';
 import {
   CHAT_ITEM_SELECTOR,
@@ -51,6 +53,7 @@ import {
 import { FlowChatMetrics } from '../lib/integrations/flow-chat/metrics';
 
 const CLASSIFICATION_CACHE_TTL_MS = 10 * 60_000;
+const AUDIT_FAILURE_COOLDOWN_MS = 30_000;
 
 export default defineContentScript({
   matches: [
@@ -77,6 +80,8 @@ export default defineContentScript({
     const conflict = new ConflictScoreTracker();
     const authorHistory = new AuthorHistory();
     const recentRisk = new RecentRiskHistory();
+    let auditSampler = new AuditSampler();
+    let auditCooldownUntil = 0;
     const flowMetrics = new FlowChatMetrics();
     let flowSignatures = new WeakMap<HTMLElement, string>();
     const flowBridge = new FlowChatBridge(document, {
@@ -191,7 +196,10 @@ export default defineContentScript({
       normalized: string,
       entry: DiagnosticEntry,
     ) => {
-      if (settings.debugMode && entry.action !== 'allow') {
+      if (
+        settings.debugMode &&
+        (entry.action !== 'allow' || entry.source === 'lm-studio-audit')
+      ) {
         void sendRuntimeMessage({ type: 'debug:add', entry }).catch(
           () => undefined,
         );
@@ -215,12 +223,30 @@ export default defineContentScript({
       record: (entry: DiagnosticEntry) => void,
       context: FilterContext,
       flowDebug: FlowChatDebugInfo | undefined,
+      requestReason: AiRequestReason,
+      auditDecision?: AuditDecision,
     ) => {
-      const result = mergeAiResult(base, ai, settings, context);
+      const result = mergeAiResult(base, ai, settings, context, requestReason);
       const { action, score } = result;
       const category = result.categories[0] ?? 'safe';
+      const auditReasons =
+        requestReason === 'zero-score-audit'
+          ? [
+              'Zero-score Audit',
+              ...(auditDecision?.reasons ?? ['同一本文の監査キャッシュ']),
+              ...(auditDecision && auditDecision.probability > 0
+                ? [
+                    `監査確率: ${auditDecision.probability.toFixed(2)}`,
+                    ...(typeof auditDecision.randomValue === 'number'
+                      ? [`抽選値: ${auditDecision.randomValue.toFixed(2)}`]
+                      : []),
+                  ]
+                : []),
+            ]
+          : [];
       result.reasons = [
         ...result.reasons,
+        ...auditReasons,
         `LM Studio: ${category === 'safe' ? '安全' : category === 'spam' ? 'スパム' : category === 'unknown' ? '判定不能' : CATEGORY_LABELS[category]}`,
       ];
       const diagnostic: DiagnosticEntry = {
@@ -236,7 +262,10 @@ export default defineContentScript({
           ? { contextAdjustment: result.contextAdjustment }
           : {}),
         ...(flowDebug ? { flow: flowDebug } : {}),
-        source: 'lm-studio',
+        source:
+          requestReason === 'zero-score-audit'
+            ? 'lm-studio-audit'
+            : 'lm-studio',
         timestamp: message.timestamp,
       };
       renderResult(element, result, diagnostic, settings.debugMode);
@@ -351,18 +380,31 @@ export default defineContentScript({
           ? 'context'
           : 'rule';
       const now = Date.now();
-      const cachedEntry = base.needsAi ? cache.get(normalized) : undefined;
+      const auditInput = {
+        normalized,
+        base,
+        settings,
+        conflictLevel: context.conflictLevel,
+        now,
+      };
+      const auditEligible = auditSampler.isEligible(auditInput);
+      const cachedEntry =
+        base.needsAi || auditEligible ? cache.get(normalized) : undefined;
       if (cachedEntry && cachedEntry.expiresAt <= now) cache.delete(normalized);
       const cached =
         cachedEntry && cachedEntry.expiresAt > now
           ? cachedEntry.result
           : undefined;
       if (cached) {
+        const requestReason: AiRequestReason = base.needsAi
+          ? 'uncertain-score'
+          : 'zero-score-audit';
         const cachedResult = mergeAiResult(
           base,
           { ...cached, id: message.id },
           settings,
           context,
+          requestReason,
         );
         flowDebug = finalizeFlow(element, flowGuard, cachedResult, 'cache');
         if (flowStarted) flowMetrics.cacheHit();
@@ -375,13 +417,25 @@ export default defineContentScript({
           record,
           context,
           flowDebug,
+          requestReason,
         );
         return;
       }
 
       flowDebug = finalizeFlow(element, flowGuard, base, ruleSource);
 
-      if (!base.needsAi || !settings.lmStudio.model) {
+      const auditDecision =
+        !base.needsAi && auditEligible && now >= auditCooldownUntil
+          ? auditSampler.evaluate(auditInput)
+          : undefined;
+      const requestReason: AiRequestReason = base.needsAi
+        ? 'uncertain-score'
+        : 'zero-score-audit';
+      const shouldUseLmStudio =
+        base.needsAi || Boolean(auditDecision?.shouldAudit);
+      const samplerForRequest = auditSampler;
+
+      if (!shouldUseLmStudio || !settings.lmStudio.model) {
         renderResult(element, base, undefined, settings.debugMode);
         record({
           id: message.id,
@@ -412,7 +466,13 @@ export default defineContentScript({
           category: base.categories[0] ?? 'safe',
           score: base.score,
           action: base.action,
-          reasons: [...base.reasons, 'AI判定待機中のためルール結果を表示'],
+          reasons: [
+            ...base.reasons,
+            ...(requestReason === 'zero-score-audit'
+              ? ['Zero-score Audit', ...(auditDecision?.reasons ?? [])]
+              : []),
+            'AI判定待機中のためルール結果を表示',
+          ],
           ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
           ...(base.features ? { features: base.features } : {}),
           ...(typeof base.contextAdjustment === 'number'
@@ -437,9 +497,14 @@ export default defineContentScript({
         .then((ai) => {
           settled = true;
           clearTimeout(fallbackTimer);
+          if (requestReason === 'zero-score-audit')
+            samplerForRequest.complete();
           if (!processing.isCurrent(token)) return;
           updateSummary({ ...summary, lmStudio: 'connected' });
-          if (settings.lmStudio.sessionLearning)
+          if (
+            requestReason === 'uncertain-score' &&
+            settings.lmStudio.sessionLearning
+          )
             learner.observe(normalized, ai);
           cache.set(normalized, {
             result: ai,
@@ -448,11 +513,25 @@ export default defineContentScript({
           if (cache.size > 500) cache.delete(cache.keys().next().value ?? '');
           // Flow Chat has already received its one-shot decision. Late AI
           // responses update YouTube rendering only.
-          applyAiResult(element, base, ai, message, record, context, flowDebug);
+          applyAiResult(
+            element,
+            base,
+            ai,
+            message,
+            record,
+            context,
+            flowDebug,
+            requestReason,
+            auditDecision,
+          );
         })
         .catch(() => {
           settled = true;
           clearTimeout(fallbackTimer);
+          if (requestReason === 'zero-score-audit') {
+            samplerForRequest.complete();
+            auditCooldownUntil = Date.now() + AUDIT_FAILURE_COOLDOWN_MS;
+          }
           if (!processing.isCurrent(token)) return;
           updateSummary({ ...summary, lmStudio: 'unavailable' });
           renderResult(element, base, undefined, settings.debugMode);
@@ -464,6 +543,9 @@ export default defineContentScript({
             action: base.action,
             reasons: [
               ...base.reasons,
+              ...(requestReason === 'zero-score-audit'
+                ? ['Zero-score Audit', ...(auditDecision?.reasons ?? [])]
+                : []),
               'LM Studioへ接続できないためルール判定を使用',
             ],
             ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
@@ -530,6 +612,9 @@ export default defineContentScript({
       conflict.clear();
       authorHistory.clear();
       recentRisk.clear();
+      auditSampler.clear();
+      auditSampler = new AuditSampler();
+      auditCooldownUntil = 0;
       void sendRuntimeMessage({ type: 'debug:clear-frame' }).catch(
         () => undefined,
       );
@@ -564,6 +649,7 @@ export default defineContentScript({
       conflict.clear();
       authorHistory.clear();
       recentRisk.clear();
+      auditSampler.clear();
       flowBridge.deactivate();
       flowMetrics.clear();
       observer.disconnect();

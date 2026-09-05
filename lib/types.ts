@@ -19,6 +19,9 @@ export type ConfigurableCategory = Exclude<
   'safe' | 'spam' | 'unknown'
 >;
 export type FilterAction = 'allow' | 'dim' | 'blur' | 'hide';
+export type RuleDisposition =
+  'excluded' | 'explicit-safe' | 'matched' | 'unmatched';
+export type AiRequestReason = 'uncertain-score' | 'zero-score-audit';
 export type PresetId = 'normal' | 'event' | 'peace';
 export type FilterMode = 'threshold' | 'allow' | 'dim' | 'blur' | 'hide';
 export type FlowChatExclusionLevel = 'blur' | 'hide' | 'custom';
@@ -71,6 +74,7 @@ export interface FilterResult {
   reasons: string[];
   action: FilterAction;
   needsAi: boolean;
+  ruleDisposition: RuleDisposition;
   /** Rule-only confidence kept separate from the display score for diagnostics. */
   confidence?: number;
   categoryScores?: Partial<Record<FilterCategory, number>>;
@@ -119,6 +123,12 @@ export interface LmStudioSettings {
   requestTimeoutMs: number;
   responseFormat: LmResponseFormat;
   sessionLearning: boolean;
+  zeroScoreAudit: {
+    enabled: boolean;
+    baseProbability: number;
+    maxPerMinute: number;
+    maxPending: number;
+  };
 }
 
 export interface SettingsV1 {
@@ -144,7 +154,7 @@ export interface DiagnosticEntry {
   features?: string[];
   contextAdjustment?: number;
   flow?: FlowChatDebugInfo;
-  source: 'rules' | 'lm-studio' | 'fallback';
+  source: 'rules' | 'lm-studio' | 'lm-studio-audit' | 'fallback';
   timestamp: number;
 }
 

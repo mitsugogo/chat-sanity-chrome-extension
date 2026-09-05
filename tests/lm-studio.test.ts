@@ -160,6 +160,13 @@ describe('response compatibility', () => {
         format,
       );
       const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body.messages[0].content).toContain('疑問形・提案形・婉曲表現');
+      expect(body.messages[0].content).toContain('善意で自然な提案');
+      expect(body.messages[0].content).toContain('優勝いけー！');
+      expect(body.messages[0].content).toContain('いけいけー！');
+      expect(body.messages[0].content).toContain('いけええええ');
+      expect(body.messages[0].content).toContain('急げー！');
+      expect(body.messages[0].content).toContain('○○だしねぇ');
       expect(JSON.parse(body.messages[1].content)).toEqual({
         messages: [
           {

@@ -9,6 +9,7 @@ const base: FilterResult = {
   categories: ['backseat'],
   reasons: ['指示の可能性'],
   needsAi: true,
+  ruleDisposition: 'matched',
 };
 function settings() {
   const value = structuredClone(DEFAULT_SETTINGS);
@@ -92,6 +93,29 @@ describe('AI結果と設定の合成', () => {
         settings(),
       ),
     ).toMatchObject({ score: 0.7 });
+  });
+  it('Zero-score Audit経由だけは未一致の0点へAI結果を適用する', () => {
+    expect(
+      mergeAiResult(
+        {
+          ...base,
+          score: 0,
+          action: 'allow',
+          categories: ['safe'],
+          needsAi: false,
+          ruleDisposition: 'unmatched',
+        },
+        { id: '1', category: 'backseat', score: 0.9 },
+        settings(),
+        undefined,
+        'zero-score-audit',
+      ),
+    ).toMatchObject({
+      score: 0.9,
+      action: 'hide',
+      categories: ['backseat'],
+      ruleDisposition: 'unmatched',
+    });
   });
   it('空白のみの許可語句で全コメントを許可しない', () => {
     const value = settings();

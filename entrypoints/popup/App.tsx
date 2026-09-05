@@ -132,21 +132,19 @@ export default function App() {
         </span>
       </section>
 
-      <section className="ai-status" aria-label="ローカルAIの状態">
-        <span
-          className={`status-dot ${aiConnected ? 'status-dot--online' : settings.lmStudio.enabled ? 'status-dot--warning' : ''}`}
-        />
-        <div>
-          <strong>
-            {settings.lmStudio.enabled
-              ? aiConnected
-                ? 'LM Studio 接続済み'
-                : 'LM Studio 未接続'
-              : 'ローカルAI 無効'}
-          </strong>
-          <span>曖昧なコメントのみ判定</span>
-        </div>
-      </section>
+      {settings.lmStudio.enabled ? (
+        <section className="ai-status" aria-label="ローカルAIの状態">
+          <span
+            className={`status-dot ${aiConnected ? 'status-dot--online' : 'status-dot--warning'}`}
+          />
+          <div>
+            <strong>
+              {aiConnected ? 'LM Studio 接続済み' : 'LM Studio 未接続'}
+            </strong>
+            <span>曖昧なコメントのみ判定</span>
+          </div>
+        </section>
+      ) : null}
 
       <button
         className="options-button"

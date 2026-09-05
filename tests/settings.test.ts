@@ -13,6 +13,12 @@ describe('AI settings migration', () => {
       requestTimeoutMs: 10000,
       responseFormat: 'json_schema',
       sessionLearning: true,
+      zeroScoreAudit: {
+        enabled: true,
+        baseProbability: 0.03,
+        maxPerMinute: 12,
+        maxPending: 20,
+      },
     });
     expect(settings.debugMode).toBe(false);
     expect(settings.flowChat).toEqual({
@@ -20,6 +26,27 @@ describe('AI settings migration', () => {
       exclusionLevel: 'blur',
       customThreshold: 0.75,
       useLlmFastPath: false,
+    });
+  });
+
+  it('Zero-score Audit設定を安全な範囲へ補完する', () => {
+    expect(
+      normalizeSettings({
+        schemaVersion: 1,
+        lmStudio: {
+          zeroScoreAudit: {
+            enabled: false,
+            baseProbability: 2,
+            maxPerMinute: 0,
+            maxPending: 99,
+          },
+        },
+      }).lmStudio.zeroScoreAudit,
+    ).toEqual({
+      enabled: false,
+      baseProbability: 0.5,
+      maxPerMinute: 1,
+      maxPending: 20,
     });
   });
   it('バッチと曖昧域と時間を契約内へ制限する', () => {

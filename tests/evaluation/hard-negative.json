@@ -64,5 +64,41 @@
     "expectedCategory": "safe",
     "expectedAction": "allow",
     "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "優勝いけー！",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "user-report-2026-09-05"
+  },
+  {
+    "text": "いけー！ ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "user-report-2026-09-05"
+  },
+  {
+    "text": "いけいけー！",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "user-report-2026-09-05"
+  },
+  {
+    "text": "いけええええ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "user-report-2026-09-05"
+  },
+  {
+    "text": "急げー！",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "user-report-2026-09-05"
+  },
+  {
+    "text": "○○だしねぇ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "user-report-2026-09-05"
   }
 ]

@@ -121,6 +121,12 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
     requestTimeoutMs: 10_000,
     responseFormat: 'json_schema',
     sessionLearning: true,
+    zeroScoreAudit: {
+      enabled: true,
+      baseProbability: 0.03,
+      maxPerMinute: 12,
+      maxPending: 20,
+    },
   },
   flowChat: {
     enabled: false,
@@ -332,6 +338,34 @@ export function normalizeLmStudio(
       typeof value?.sessionLearning === 'boolean'
         ? value.sessionLearning
         : true,
+    zeroScoreAudit: {
+      enabled:
+        typeof value?.zeroScoreAudit?.enabled === 'boolean'
+          ? value.zeroScoreAudit.enabled
+          : defaults.zeroScoreAudit.enabled,
+      baseProbability: finiteClamp(
+        value?.zeroScoreAudit?.baseProbability,
+        defaults.zeroScoreAudit.baseProbability,
+        0,
+        0.5,
+      ),
+      maxPerMinute: Math.floor(
+        finiteClamp(
+          value?.zeroScoreAudit?.maxPerMinute,
+          defaults.zeroScoreAudit.maxPerMinute,
+          1,
+          60,
+        ),
+      ),
+      maxPending: Math.floor(
+        finiteClamp(
+          value?.zeroScoreAudit?.maxPending,
+          defaults.zeroScoreAudit.maxPending,
+          1,
+          20,
+        ),
+      ),
+    },
     uncertainMin,
     uncertainMax: finiteClamp(
       value?.uncertainMax,

@@ -68,4 +68,14 @@ describe('popup', () => {
     fireEvent.click(screen.getByRole('button', { name: '詳細設定を開く' }));
     expect(mocks.openOptionsPage).toHaveBeenCalledOnce();
   });
+
+  it('ローカルAIが無効な場合はAI状態を表示しない', async () => {
+    mocks.get.mockResolvedValue({ settings: DEFAULT_SETTINGS });
+    render(<App />);
+    await screen.findByText('YouTubeチャットで動作中');
+    expect(
+      screen.queryByRole('region', { name: 'ローカルAIの状態' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('ローカルAI 無効')).not.toBeInTheDocument();
+  });
 });

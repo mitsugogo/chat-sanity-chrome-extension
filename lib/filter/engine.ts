@@ -3,6 +3,7 @@ import type {
   FilterCategory,
   FilterAction,
   FilterResult,
+  AiRequestReason,
   LmClassificationResult,
   SettingsV1,
 } from '../types';
@@ -46,7 +47,7 @@ export function createFilterEngine() {
     const text = normalizeText(message.text);
 
     if (!settings.enabled || message.isOwner || message.isModerator || !text) {
-      return result(0, [], ['フィルター対象外'], 'allow', false);
+      return result(0, [], ['フィルター対象外'], 'allow', false, 'excluded');
     }
 
     if (
@@ -55,7 +56,14 @@ export function createFilterEngine() {
           normalizeText(word).length > 0 && text.includes(normalizeText(word)),
       )
     ) {
-      return result(0, ['safe'], ['許可する語句に一致'], 'allow', false);
+      return result(
+        0,
+        ['safe'],
+        ['許可する語句に一致'],
+        'allow',
+        false,
+        'explicit-safe',
+      );
     }
 
     if (
@@ -70,34 +78,22 @@ export function createFilterEngine() {
         ['ブロックする語句に一致'],
         'hide',
         false,
+        'matched',
       );
     }
 
     if (isObviouslySafe(text)) {
-      return result(0, ['safe'], ['明らかなリアクション'], 'allow', false);
-    }
-
-    const hasLearnedRule =
-      settings.lmStudio.enabled &&
-      settings.lmStudio.sessionLearning &&
-      learned !== null &&
-      learned !== undefined &&
-      learned.category !== 'safe' &&
-      learned.category !== 'spam' &&
-      learned.category !== 'unknown' &&
-      scoreFromAi(learned) !== null;
-
-    const candidates = prefilter(text);
-    if (candidates.type === 'safe' && !hasLearnedRule) {
       return result(
         0,
         ['safe'],
-        ['リスク候補に一致しませんでした'],
+        ['明らかなリアクション'],
         'allow',
         false,
+        'explicit-safe',
       );
     }
 
+    const candidates = prefilter(text);
     const ruleMatches = matchRules(text, context?.targetNames);
     if (
       settings.lmStudio.enabled &&
@@ -200,6 +196,9 @@ export function createFilterEngine() {
       finalReasons,
       action,
       needsAi,
+      ruleMatches.length > 0 || categories.includes('spam')
+        ? 'matched'
+        : 'unmatched',
       {
         confidence: clamp(score),
         categoryScores,
@@ -216,9 +215,18 @@ export function mergeAiResult(
   ai: LmClassificationResult,
   settings: SettingsV1,
   context?: FilterContext,
+  requestReason: AiRequestReason = 'uncertain-score',
 ): FilterResult {
   const profile = settings.profiles[settings.activePreset];
-  if (!base.needsAi || !settings.enabled || !settings.lmStudio.enabled)
+  const isEligibleAudit =
+    requestReason === 'zero-score-audit' &&
+    base.ruleDisposition === 'unmatched' &&
+    base.score === 0;
+  if (
+    (!base.needsAi && !isEligibleAudit) ||
+    !settings.enabled ||
+    !settings.lmStudio.enabled
+  )
     return base;
   if (ai.category === 'unknown')
     return {
@@ -259,6 +267,7 @@ export function mergeAiResult(
     reasons,
     action: actionForResult(score, [ai.category], profile),
     needsAi: false,
+    ruleDisposition: base.ruleDisposition,
     confidence: scoreFromAi(ai) ?? score,
     categoryScores: {
       ...(base.categoryScores ?? {}),
@@ -397,6 +406,7 @@ function result(
   reasons: string[],
   action: FilterAction,
   needsAi: boolean,
+  ruleDisposition: FilterResult['ruleDisposition'],
   metadata?: Pick<
     FilterResult,
     | 'confidence'
@@ -406,7 +416,15 @@ function result(
     | 'contextAdjustment'
   >,
 ): FilterResult {
-  return { score, categories, reasons, action, needsAi, ...metadata };
+  return {
+    score,
+    categories,
+    reasons,
+    action,
+    needsAi,
+    ruleDisposition,
+    ...metadata,
+  };
 }
 
 function clamp(value: number): number {

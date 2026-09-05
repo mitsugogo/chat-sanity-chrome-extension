@@ -56,11 +56,30 @@ describe('options', () => {
     expect(
       screen.getByLabelText('Flow Chat連携を有効にする'),
     ).not.toBeChecked();
+    expect(screen.getByLabelText('デバッグモード')).not.toBeChecked();
+    const lmStudioSwitch = screen.getByLabelText('LM Studioを使用する');
+    expect(lmStudioSwitch).not.toBeChecked();
+    expect(screen.queryByLabelText('エンドポイント')).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('未判定コメントをときどきAIで再確認'),
+    ).not.toBeInTheDocument();
+    fireEvent.click(lmStudioSwitch);
+    const auditSwitch =
+      await screen.findByLabelText('未判定コメントをときどきAIで再確認');
+    expect(auditSwitch).toBeChecked();
+    fireEvent.click(auditSwitch);
     fireEvent.change(screen.getByLabelText('指示・指示厨の重み'), {
       target: { value: '0.9' },
     });
     fireEvent.click(screen.getByRole('button', { name: '設定を保存' }));
     await waitFor(() => expect(mocks.set).toHaveBeenCalled());
+    expect(mocks.set).toHaveBeenCalledWith({
+      settings: expect.objectContaining({
+        lmStudio: expect.objectContaining({
+          zeroScoreAudit: expect.objectContaining({ enabled: false }),
+        }),
+      }),
+    });
     expect(screen.getByText(/設定を保存しました/)).toBeInTheDocument();
   });
 
@@ -125,6 +144,9 @@ describe('options', () => {
 });
 
 it('接続確認だけでは権限を要求しない', async () => {
+  const stored = structuredClone(DEFAULT_SETTINGS);
+  stored.lmStudio.enabled = true;
+  mocks.get.mockResolvedValue({ settings: stored });
   render(<App />);
   await screen.findByRole('heading', { name: 'ローカルAI設定' });
   fireEvent.click(screen.getByRole('button', { name: '接続を確認' }));
