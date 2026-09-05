@@ -24,6 +24,8 @@ import type {
   RuntimeMessage,
   RuntimeResponse,
   SessionSummary,
+  FlowChatDebugInfo,
+  FlowChatDecisionSource,
 } from '../lib/types';
 import {
   CHAT_ITEM_SELECTOR,
@@ -37,6 +39,16 @@ import {
   renderResult,
   resetRenderedItem,
 } from '../lib/youtube/renderer';
+import {
+  FlowChatBridge,
+  type FlowChatGuard,
+} from '../lib/integrations/flow-chat/bridge';
+import {
+  FLOW_CHAT_DEADLINE_MS,
+  resolveFlowChatThreshold,
+  type FlowChatDecision,
+} from '../lib/integrations/flow-chat/constants';
+import { FlowChatMetrics } from '../lib/integrations/flow-chat/metrics';
 
 const CLASSIFICATION_CACHE_TTL_MS = 10 * 60_000;
 
@@ -46,6 +58,7 @@ export default defineContentScript({
     'https://www.youtube.com/live_chat_replay*',
   ],
   allFrames: true,
+  runAt: 'document_start',
   cssInjectionMode: 'manifest',
   async main(ctx) {
     let settings = await loadSettings();
@@ -64,7 +77,29 @@ export default defineContentScript({
     const conflict = new ConflictScoreTracker();
     const authorHistory = new AuthorHistory();
     const recentRisk = new RecentRiskHistory();
+    const flowMetrics = new FlowChatMetrics();
+    let flowSignatures = new WeakMap<HTMLElement, string>();
+    const flowBridge = new FlowChatBridge(document, {
+      deadlineMs: FLOW_CHAT_DEADLINE_MS,
+      onTimeout: (_element, elapsedMs) => {
+        flowMetrics.timeout();
+        flowMetrics.finalized(false, elapsedMs);
+        publishFlowMetrics();
+      },
+      onError: () => {
+        flowMetrics.error();
+        publishFlowMetrics();
+      },
+    });
     let evaluate = createFilterEngine();
+
+    const publishFlowMetrics = () => {
+      if (!settings.debugMode || !settings.flowChat.enabled) return;
+      void sendRuntimeMessage({
+        type: 'flow:metrics-update',
+        metrics: flowMetrics.snapshot(),
+      }).catch(() => undefined);
+    };
 
     const publishSummary = () => {
       void sendRuntimeMessage({
@@ -104,6 +139,53 @@ export default defineContentScript({
     };
     let queue = createQueue();
 
+    const finalizeFlow = (
+      element: HTMLElement,
+      guard: FlowChatGuard | undefined,
+      result: FilterResult,
+      source: FlowChatDecisionSource,
+    ): FlowChatDebugInfo | undefined => {
+      if (!guard || !settings.flowChat.enabled) return undefined;
+      const threshold = resolveFlowChatThreshold(settings);
+      const score = Math.min(1, Math.max(0, result.score));
+      const decision: FlowChatDecision = {
+        exclude: score >= threshold,
+        score,
+        threshold,
+        source,
+      };
+      const finalized = guard.finalize(decision);
+      const elapsedMs = Math.max(0, Date.now() - guard.startedAt);
+      if (finalized) {
+        flowMetrics.classified();
+        flowMetrics.finalized(decision.exclude, elapsedMs);
+        publishFlowMetrics();
+      }
+      return {
+        integrationEnabled: flowBridge.isActive(),
+        excluded: decision.exclude,
+        threshold,
+        score,
+        decisionSource: source,
+        elapsedMs,
+      };
+    };
+
+    const finalizeUnsupported = (element: HTMLElement) => {
+      if (!settings.flowChat.enabled || !flowBridge.isActive()) return;
+      if (element.matches(CHAT_ITEM_SELECTOR)) return;
+      if (flowBridge.isFinalized(element) || flowBridge.isPending(element))
+        return;
+      const startedAt = Date.now();
+      const guard = flowBridge.begin(element);
+      flowMetrics.received();
+      const finalized = guard.finalizeAllowed('fail-open');
+      if (finalized) {
+        flowMetrics.finalized(false, Date.now() - startedAt);
+        publishFlowMetrics();
+      }
+    };
+
     const remember = (
       message: ChatMessage,
       normalized: string,
@@ -132,6 +214,7 @@ export default defineContentScript({
       message: ChatMessage,
       record: (entry: DiagnosticEntry) => void,
       context: FilterContext,
+      flowDebug: FlowChatDebugInfo | undefined,
     ) => {
       const result = mergeAiResult(base, ai, settings, context);
       const { action, score } = result;
@@ -147,6 +230,12 @@ export default defineContentScript({
         score,
         action,
         reasons: result.reasons,
+        ...(result.ruleIds ? { ruleIds: result.ruleIds } : {}),
+        ...(result.features ? { features: result.features } : {}),
+        ...(typeof result.contextAdjustment === 'number'
+          ? { contextAdjustment: result.contextAdjustment }
+          : {}),
+        ...(flowDebug ? { flow: flowDebug } : {}),
         source: 'lm-studio',
         timestamp: message.timestamp,
       };
@@ -155,24 +244,77 @@ export default defineContentScript({
     };
 
     const processItem = (element: HTMLElement) => {
-      const message = parseChatMessage(element);
-      if (!message) return;
-      const token = processing.begin(element, chatMessageSignature(message));
-      if (!token) return;
+      let flowStarted =
+        settings.flowChat.enabled &&
+        flowBridge.isActive() &&
+        !flowBridge.isFinalized(element) &&
+        !flowBridge.isPending(element);
+      let flowGuard = flowStarted ? flowBridge.begin(element) : undefined;
+      if (flowStarted) flowMetrics.received();
+
+      const finalizeFlowAllowed = () => {
+        if (!flowGuard) return;
+        const finalized = flowGuard.finalizeAllowed('fail-open');
+        if (finalized) {
+          flowMetrics.finalized(false, Date.now() - flowGuard.startedAt);
+          publishFlowMetrics();
+        }
+      };
+
+      let message: ChatMessage | null;
+      try {
+        message = parseChatMessage(element);
+      } catch {
+        if (flowStarted) {
+          flowMetrics.error();
+          publishFlowMetrics();
+        }
+        finalizeFlowAllowed();
+        return;
+      }
+      if (!message) {
+        finalizeFlowAllowed();
+        return;
+      }
+      const signature = chatMessageSignature(message);
+      const previousFlowSignature = flowSignatures.get(element);
+      if (previousFlowSignature && previousFlowSignature !== signature) {
+        const wasTracked = flowStarted;
+        flowBridge.clearElement(element);
+        flowGuard =
+          settings.flowChat.enabled && flowBridge.isActive()
+            ? flowBridge.begin(element)
+            : undefined;
+        flowStarted = Boolean(flowGuard);
+        if (flowStarted && !wasTracked) flowMetrics.received();
+      }
+      flowSignatures.set(element, signature);
+      const token = processing.begin(element, signature);
+      if (!token) {
+        finalizeFlowAllowed();
+        return;
+      }
       const normalized = normalizeText(message.text);
       const author = message.authorExternalChannelId ?? message.author;
       const context = {
         conflictLevel: conflict.get(message.timestamp),
+        categoryConflict: conflict.getCategoryLevels(message.timestamp),
         sameAuthorRecent: authorHistory.recent(author, message.timestamp),
         recentRiskyMessages: recentRisk.recent(message.timestamp),
       };
-      const base = evaluate(
-        message,
-        settings,
-        learner.lookup(normalized),
-        context,
-      );
+      let base: FilterResult;
+      try {
+        base = evaluate(message, settings, learner.lookup(normalized), context);
+      } catch {
+        if (flowStarted) {
+          flowMetrics.error();
+          publishFlowMetrics();
+        }
+        finalizeFlowAllowed();
+        return;
+      }
       let recordedEntry: DiagnosticEntry | undefined;
+      let flowDebug: FlowChatDebugInfo | undefined;
       const record = (entry: DiagnosticEntry) => {
         if (!recordedEntry) {
           recordedEntry = entry;
@@ -203,6 +345,42 @@ export default defineContentScript({
         }
       };
 
+      const ruleSource: FlowChatDecisionSource =
+        typeof base.contextAdjustment === 'number' &&
+        base.contextAdjustment !== 0
+          ? 'context'
+          : 'rule';
+      const now = Date.now();
+      const cachedEntry = base.needsAi ? cache.get(normalized) : undefined;
+      if (cachedEntry && cachedEntry.expiresAt <= now) cache.delete(normalized);
+      const cached =
+        cachedEntry && cachedEntry.expiresAt > now
+          ? cachedEntry.result
+          : undefined;
+      if (cached) {
+        const cachedResult = mergeAiResult(
+          base,
+          { ...cached, id: message.id },
+          settings,
+          context,
+        );
+        flowDebug = finalizeFlow(element, flowGuard, cachedResult, 'cache');
+        if (flowStarted) flowMetrics.cacheHit();
+        updateSummary({ ...summary, lmStudio: 'connected' });
+        applyAiResult(
+          element,
+          base,
+          { ...cached, id: message.id },
+          message,
+          record,
+          context,
+          flowDebug,
+        );
+        return;
+      }
+
+      flowDebug = finalizeFlow(element, flowGuard, base, ruleSource);
+
       if (!base.needsAi || !settings.lmStudio.model) {
         renderResult(element, base, undefined, settings.debugMode);
         record({
@@ -212,31 +390,15 @@ export default defineContentScript({
           score: base.score,
           action: base.action,
           reasons: base.reasons,
+          ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
+          ...(base.features ? { features: base.features } : {}),
+          ...(typeof base.contextAdjustment === 'number'
+            ? { contextAdjustment: base.contextAdjustment }
+            : {}),
+          ...(flowDebug ? { flow: flowDebug } : {}),
           source: base.needsAi ? 'fallback' : 'rules',
           timestamp: message.timestamp,
         });
-        return;
-      }
-
-      const now = Date.now();
-      const cachedEntry = cache.get(normalized);
-      if (cachedEntry && cachedEntry.expiresAt <= now) {
-        cache.delete(normalized);
-      }
-      const cached =
-        cachedEntry && cachedEntry.expiresAt > now
-          ? cachedEntry.result
-          : undefined;
-      if (cached) {
-        updateSummary({ ...summary, lmStudio: 'connected' });
-        applyAiResult(
-          element,
-          base,
-          { ...cached, id: message.id },
-          message,
-          record,
-          context,
-        );
         return;
       }
 
@@ -251,6 +413,12 @@ export default defineContentScript({
           score: base.score,
           action: base.action,
           reasons: [...base.reasons, 'AI判定待機中のためルール結果を表示'],
+          ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
+          ...(base.features ? { features: base.features } : {}),
+          ...(typeof base.contextAdjustment === 'number'
+            ? { contextAdjustment: base.contextAdjustment }
+            : {}),
+          ...(flowDebug ? { flow: flowDebug } : {}),
           source: 'fallback',
           timestamp: message.timestamp,
         };
@@ -278,7 +446,9 @@ export default defineContentScript({
             expiresAt: Date.now() + CLASSIFICATION_CACHE_TTL_MS,
           });
           if (cache.size > 500) cache.delete(cache.keys().next().value ?? '');
-          applyAiResult(element, base, ai, message, record, context);
+          // Flow Chat has already received its one-shot decision. Late AI
+          // responses update YouTube rendering only.
+          applyAiResult(element, base, ai, message, record, context, flowDebug);
         })
         .catch(() => {
           settled = true;
@@ -296,6 +466,12 @@ export default defineContentScript({
               ...base.reasons,
               'LM Studioへ接続できないためルール判定を使用',
             ],
+            ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
+            ...(base.features ? { features: base.features } : {}),
+            ...(typeof base.contextAdjustment === 'number'
+              ? { contextAdjustment: base.contextAdjustment }
+              : {}),
+            ...(flowDebug ? { flow: flowDebug } : {}),
             source: 'fallback',
             timestamp: message.timestamp,
           });
@@ -303,11 +479,30 @@ export default defineContentScript({
     };
 
     const scan = (node: Node) => {
-      for (const item of findChatItems(node)) processItem(item);
+      const items = findChatItems(node);
+      const itemSet = new Set(items);
+      for (const item of items) processItem(item);
+      if (!settings.flowChat.enabled || !flowBridge.isActive()) return;
+
+      const candidates: HTMLElement[] = [];
+      if (node instanceof HTMLElement && node.id === 'items') {
+        candidates.push(
+          ...Array.from(node.children).filter(
+            (child): child is HTMLElement => child instanceof HTMLElement,
+          ),
+        );
+      } else if (
+        node instanceof HTMLElement &&
+        node.parentElement?.id === 'items'
+      ) {
+        candidates.push(node);
+      }
+      for (const candidate of candidates) {
+        if (!itemSet.has(candidate)) finalizeUnsupported(candidate);
+      }
     };
 
     const root = document.querySelector('#items') ?? document.documentElement;
-    scan(root);
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         scan(mutation.target);
@@ -319,9 +514,15 @@ export default defineContentScript({
       characterData: true,
       subtree: true,
     });
+    if (settings.flowChat.enabled) flowBridge.activate();
+    else flowBridge.deactivate();
+    scan(root);
     publishSummary();
 
     const unsubscribe = subscribeSettings((next) => {
+      flowBridge.deactivate();
+      flowMetrics.clear();
+      flowSignatures = new WeakMap<HTMLElement, string>();
       processing.reset();
       queue.dispose();
       cache.clear();
@@ -330,6 +531,9 @@ export default defineContentScript({
       authorHistory.clear();
       recentRisk.clear();
       void sendRuntimeMessage({ type: 'debug:clear-frame' }).catch(
+        () => undefined,
+      );
+      void sendRuntimeMessage({ type: 'flow:metrics-clear-frame' }).catch(
         () => undefined,
       );
       settings = next;
@@ -341,12 +545,15 @@ export default defineContentScript({
       });
       queue = createQueue();
       evaluate = createFilterEngine();
+      if (settings.flowChat.enabled) flowBridge.activate();
       document
         .querySelectorAll<HTMLElement>(CHAT_ITEM_SELECTOR)
         .forEach((item) => {
           resetRenderedItem(item);
           processItem(item);
         });
+      scan(root);
+      publishFlowMetrics();
     });
 
     ctx.onInvalidated(() => {
@@ -357,8 +564,13 @@ export default defineContentScript({
       conflict.clear();
       authorHistory.clear();
       recentRisk.clear();
+      flowBridge.deactivate();
+      flowMetrics.clear();
       observer.disconnect();
       unsubscribe();
+      void sendRuntimeMessage({ type: 'flow:metrics-clear-frame' }).catch(
+        () => undefined,
+      );
       void sendRuntimeMessage({ type: 'session:remove' }).catch(
         () => undefined,
       );

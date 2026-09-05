@@ -16,7 +16,7 @@ export function resetRenderedItem(element: HTMLElement): void {
   element.querySelector('.chatsanity-placeholder')?.remove();
   element.querySelector('.chatsanity-debug-score')?.remove();
   element.querySelector('.chatsanity-ai-status')?.remove();
-  const message = element.querySelector('#message');
+  const message = element.querySelector<HTMLElement>('#message');
   if (message) clearRevealHandler(message);
   message?.removeAttribute('title');
   message?.removeAttribute('aria-label');
@@ -83,10 +83,7 @@ export function renderResult(
   }
 }
 
-function attachRevealHandler(
-  message: HTMLElement,
-  reveal: () => void,
-): void {
+function attachRevealHandler(message: HTMLElement, reveal: () => void): void {
   clearRevealHandler(message);
   const handler = () => {
     REVEAL_HANDLERS.delete(message);

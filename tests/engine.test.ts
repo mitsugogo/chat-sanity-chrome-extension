@@ -110,9 +110,9 @@ describe('filter engine', () => {
     ['○○に任せればよかった', 'comparison'],
     ['やめてください', 'backseat'],
   ] as const)('prefilter後も「%s」を%sへ渡す', (text, category) => {
-    expect(createFilterEngine()(createMessage(text), settings()).categories).toContain(
-      category,
-    );
+    expect(
+      createFilterEngine()(createMessage(text), settings()).categories,
+    ).toContain(category);
   });
 
   it('prefilter候補だけでは危険理由を確定しない', () => {

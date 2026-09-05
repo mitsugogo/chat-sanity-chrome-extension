@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { classifyWithLmStudio, listModels } from '../lib/lm-studio';
 import { DebugHistoryStore } from '../lib/debug-history';
+import { FlowChatMetricsStore } from '../lib/integrations/flow-chat/metrics';
 import {
   aggregateSessionSummaries,
   type LmStudioStatus,
@@ -87,6 +88,7 @@ async function getLmStudioStatus(): Promise<LmStudioStatus> {
 
 export default defineBackground(() => {
   const debugHistory = new DebugHistoryStore();
+  const flowMetrics = new FlowChatMetricsStore();
   void ensureSettings();
 
   browser.runtime.onInstalled.addListener(() => {
@@ -95,11 +97,13 @@ export default defineBackground(() => {
 
   browser.tabs.onRemoved.addListener((tabId) => {
     debugHistory.removeTab(tabId);
+    flowMetrics.clearTab(tabId);
     void removeTabSessions(tabId);
   });
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.status === 'loading') {
       debugHistory.removeTab(tabId);
+      flowMetrics.clearTab(tabId);
       void removeTabSessions(tabId);
     }
   });
@@ -110,11 +114,31 @@ export default defineBackground(() => {
       return Promise.resolve<RuntimeResponse>({
         ok: true,
         entries: debugHistory.list(),
+        flowMetrics: flowMetrics.aggregate(),
       });
     }
 
     if (request.type === 'debug:clear') {
       debugHistory.clear();
+      flowMetrics.clear();
+      return Promise.resolve<RuntimeResponse>({ ok: true });
+    }
+
+    if (
+      request.type === 'flow:metrics-update' ||
+      request.type === 'flow:metrics-clear-frame'
+    ) {
+      const tabId = sender.tab?.id;
+      const frameId = sender.frameId;
+      if (typeof tabId !== 'number' || typeof frameId !== 'number') {
+        return Promise.resolve<RuntimeResponse>({
+          ok: false,
+          error: 'チャットフレームを特定できません。',
+        });
+      }
+      if (request.type === 'flow:metrics-update')
+        flowMetrics.update(tabId, frameId, request.metrics);
+      else flowMetrics.clearFrame(tabId, frameId);
       return Promise.resolve<RuntimeResponse>({ ok: true });
     }
 

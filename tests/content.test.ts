@@ -104,6 +104,121 @@ function changeSettings(next: SettingsV1) {
 }
 
 describe('content integration', () => {
+  it('Flow Chat連携は安全な行もfilteredで確定し危険な行を除外する', async () => {
+    settings.flowChat.enabled = true;
+    settings.lmStudio.enabled = false;
+    const safe = append('flow-safe', 'こんにちは');
+    const risky = append('flow-risk', '死ね');
+    await start();
+
+    expect(document.documentElement).toHaveClass('ylcfr-active');
+    expect(safe).toHaveClass('ylcfr-filtered-message');
+    expect(safe).not.toHaveClass('ylcfr-deleted-message');
+    expect(risky).toHaveClass(
+      'ylcfr-filtered-message',
+      'ylcfr-deleted-message',
+    );
+  });
+
+  it('Flow Chat連携は非チャット要素もfail-openで確定する', async () => {
+    settings.flowChat.enabled = true;
+    settings.lmStudio.enabled = false;
+    const placeholder = document.createElement('div');
+    placeholder.textContent = 'loading';
+    document.querySelector('#items')?.append(placeholder);
+    await start();
+
+    expect(placeholder).toHaveClass('ylcfr-filtered-message');
+    expect(placeholder).not.toHaveClass('ylcfr-deleted-message');
+  });
+
+  it('本文を解析できないrendererもfail-openで確定する', async () => {
+    settings.flowChat.enabled = true;
+    settings.lmStudio.enabled = false;
+    const renderer = document.createElement(
+      'yt-live-chat-membership-item-renderer',
+    );
+    document.querySelector('#items')?.append(renderer);
+    await start();
+
+    expect(renderer).toHaveClass('ylcfr-filtered-message');
+    expect(renderer).not.toHaveClass('ylcfr-deleted-message');
+  });
+
+  it('有効化後に追加されたFlow Chat観測要素も即時確定する', async () => {
+    settings.flowChat.enabled = true;
+    settings.lmStudio.enabled = false;
+    await start();
+    const placeholder = document.createElement('div');
+    document.querySelector('#items')?.append(placeholder);
+    await Promise.resolve();
+
+    expect(placeholder).toHaveClass('ylcfr-filtered-message');
+  });
+
+  it('同じDOM行が更新された場合はFlow Chat判定も再実行する', async () => {
+    settings.flowChat.enabled = true;
+    settings.lmStudio.enabled = false;
+    const item = append('flow-reused', '死ね');
+    await start();
+    expect(item).toHaveClass('ylcfr-deleted-message');
+
+    item.querySelector('#message')!.textContent = 'こんにちは';
+    await Promise.resolve();
+
+    expect(item).toHaveClass('ylcfr-filtered-message');
+    expect(item).not.toHaveClass('ylcfr-deleted-message');
+  });
+
+  it('Flow Chat連携OFFではprotocolクラスを書き込まない', async () => {
+    settings.flowChat.enabled = false;
+    settings.lmStudio.enabled = false;
+    document.documentElement.classList.add('ylcfr-active');
+    const item = append('flow-off', '死ね');
+    await start();
+
+    expect(document.documentElement).not.toHaveClass('ylcfr-active');
+    expect(item).not.toHaveClass(
+      'ylcfr-filtered-message',
+      'ylcfr-deleted-message',
+    );
+    expect(item).toHaveClass('chatsanity-hidden');
+  });
+
+  it('Flow Chat連携のON/OFF連打でpendingとprotocol状態をリセットする', async () => {
+    settings.flowChat.enabled = true;
+    const item = append('flow-toggle', '回復した方がいい');
+    await start();
+    expect(item).toHaveClass('ylcfr-filtered-message');
+
+    const off = structuredClone(settings);
+    off.flowChat.enabled = false;
+    changeSettings(off);
+    expect(document.documentElement).not.toHaveClass('ylcfr-active');
+    expect(item).toHaveClass('ylcfr-filtered-message');
+
+    const on = structuredClone(off);
+    on.flowChat.enabled = true;
+    changeSettings(on);
+    expect(document.documentElement).toHaveClass('ylcfr-active');
+    expect(item).toHaveClass('ylcfr-filtered-message');
+  });
+
+  it('遅れて届くAI結果はFlow Chatの確定済み除外を変更しない', async () => {
+    settings.flowChat.enabled = true;
+    const item = append('flow-late-ai');
+    await start();
+    expect(item).toHaveClass('ylcfr-filtered-message');
+    expect(item).not.toHaveClass('ylcfr-deleted-message');
+
+    await vi.advanceTimersByTimeAsync(200);
+    resolveRequest(0, 0.95);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(item).toHaveClass('chatsanity-hidden');
+    expect(item).not.toHaveClass('ylcfr-deleted-message');
+  });
+
   it('デバッグ時はスコアを表示して対応理由を履歴へ送る', async () => {
     settings.debugMode = true;
     settings.lmStudio.enabled = false;

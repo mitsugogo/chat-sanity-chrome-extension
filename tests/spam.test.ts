@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createFilterEngine } from '../lib/filter/engine';
-import { SpamDetector } from '../lib/filter/spam';
+import { similarity, SpamDetector } from '../lib/filter/spam';
 import { DEFAULT_SETTINGS } from '../lib/settings';
 
 describe('短時間スパム', () => {
@@ -21,6 +21,16 @@ describe('短時間スパム', () => {
     expect(spam.evaluate('a', 'しっかりしろ', 0, 0.88)).toBe(0);
     expect(spam.evaluate('a', 'しっかりしろ', 10_000, 0.88)).toBe(0);
     expect(spam.evaluate('a', 'しっかりしろ', 20_000, 0.88)).toBeGreaterThan(
+      0.8,
+    );
+  });
+
+  it('語尾だけ変えたリスク投稿の連投も類似度で検出する', () => {
+    const spam = new SpamDetector();
+    expect(similarity('しっかりしろ', 'しっかりしろよ')).toBeGreaterThan(0.8);
+    spam.evaluate('a', 'しっかりしろ', 0, 0.88);
+    spam.evaluate('a', 'しっかりしろよ', 10_000, 0.88);
+    expect(spam.evaluate('a', 'しっかりしろね', 20_000, 0.88)).toBeGreaterThan(
       0.8,
     );
   });

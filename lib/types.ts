@@ -21,6 +21,37 @@ export type ConfigurableCategory = Exclude<
 export type FilterAction = 'allow' | 'dim' | 'blur' | 'hide';
 export type PresetId = 'normal' | 'event' | 'peace';
 export type FilterMode = 'threshold' | 'allow' | 'dim' | 'blur' | 'hide';
+export type FlowChatExclusionLevel = 'blur' | 'hide' | 'custom';
+export type FlowChatDecisionSource =
+  'rule' | 'context' | 'cache' | 'llm-fast' | 'fail-open';
+
+export interface FlowChatSettings {
+  enabled: boolean;
+  exclusionLevel: FlowChatExclusionLevel;
+  customThreshold?: number;
+  useLlmFastPath?: boolean;
+}
+
+export interface FlowChatDebugInfo {
+  integrationEnabled: boolean;
+  excluded: boolean;
+  threshold: number;
+  score: number;
+  decisionSource: FlowChatDecisionSource;
+  elapsedMs: number;
+}
+
+export interface FlowChatMetricsSnapshot {
+  received: number;
+  classified: number;
+  excluded: number;
+  allowed: number;
+  cacheHits: number;
+  timeouts: number;
+  errors: number;
+  averageLatency: number;
+  maxLatency: number;
+}
 
 export interface ChatMessage {
   id: string;
@@ -40,6 +71,19 @@ export interface FilterResult {
   reasons: string[];
   action: FilterAction;
   needsAi: boolean;
+  /** Rule-only confidence kept separate from the display score for diagnostics. */
+  confidence?: number;
+  categoryScores?: Partial<Record<FilterCategory, number>>;
+  ruleIds?: string[];
+  features?: string[];
+  contextAdjustment?: number;
+}
+
+/** Public shape for consumers that need the rule score without display state. */
+export interface RuleClassificationResult {
+  category: FilterCategory;
+  score: number;
+  confidence: number;
 }
 
 export interface Thresholds {
@@ -86,6 +130,7 @@ export interface SettingsV1 {
   blockedWords: string[];
   allowedWords: string[];
   lmStudio: LmStudioSettings;
+  flowChat: FlowChatSettings;
 }
 
 export interface DiagnosticEntry {
@@ -95,6 +140,10 @@ export interface DiagnosticEntry {
   score: number;
   action: FilterAction;
   reasons: string[];
+  ruleIds?: string[];
+  features?: string[];
+  contextAdjustment?: number;
+  flow?: FlowChatDebugInfo;
   source: 'rules' | 'lm-studio' | 'fallback';
   timestamp: number;
 }
@@ -131,6 +180,8 @@ export type RuntimeMessage =
   | { type: 'debug:get' }
   | { type: 'debug:clear' }
   | { type: 'debug:clear-frame' }
+  | { type: 'flow:metrics-update'; metrics: FlowChatMetricsSnapshot }
+  | { type: 'flow:metrics-clear-frame' }
   | { type: 'lm:list-models'; endpoint: string }
   | {
       type: 'lm:classify';
@@ -146,5 +197,9 @@ export type RuntimeResponse =
   | { ok: true; summary: SessionSummary }
   | { ok: true; models: string[] }
   | { ok: true; results: LmClassificationResult[] }
-  | { ok: true; entries: DiagnosticEntry[] }
+  | {
+      ok: true;
+      entries: DiagnosticEntry[];
+      flowMetrics?: FlowChatMetricsSnapshot;
+    }
   | { ok: false; error: string };

@@ -6,45 +6,54 @@
 YouTube chat DOM
   -> YouTube Adapter
   -> Normalizer
-  -> Rule Engine / Spam Detector
+  -> Safe Fast Path
+  -> Feature Extraction / Rule Scoring
+  -> Context Modifier / Spam Detector
   -> ambiguous only: Service Worker -> LM Studio
-  -> context modifier (conflict / author / recent risk)
   -> action selection
-  -> Renderer
+  -> Renderer (YouTube標準チャット)
   -> original YouTube node
+  -> optional FlowChatBridge (DOM handshake)
 ```
 
 Content ScriptはYouTubeのチャットフレームで新着ノードを監視し、AdapterがDOMを`ChatMessage`へ変換します。Normalizer以降はDOMから独立したデータを扱います。
 
-ルールだけで結果が確定するコメントは即時にRendererへ渡します。曖昧域のコメントは一時IDと正規化済み本文に、同一投稿者の直近リスク投稿・直近のリスク投稿・対立度だけを加えてService Workerへ送り、LM Studioの構造化結果とルール結果を合成します。投稿者名、チャンネル情報、DOM、メンバー状態は送信しません。
+明らかなリアクションはSafe Fast Pathで終了し、それ以外は対象検出、命令形、責任追及、能力攻撃、比較、meta conflict、配信不満、安全文脈をfeature単位で抽出してRuleScoreへ集約します。ルールだけで結果が確定するコメントは即時にRendererへ渡します。曖昧域のコメントは一時IDと正規化済み本文に、同一投稿者の直近リスク投稿・直近のリスク投稿・対立度だけを加えてService Workerへ送り、LM Studioの構造化結果とルール結果を合成します。投稿者名、チャンネル情報、DOM、メンバー状態は送信しません。
 
 ## 責務の境界
 
-| 領域           | 主なファイル                                 | 責務                                          |
-| -------------- | -------------------------------------------- | --------------------------------------------- |
-| 拡張設定       | `wxt.config.ts`                              | Manifest共通設定、通常権限、任意ホスト権限    |
-| Content Script | `entrypoints/content.ts`                     | DOM監視、重複防止、処理のオーケストレーション |
-| Service Worker | `entrypoints/background.ts`                  | LM Studio通信とランタイムメッセージ処理       |
-| 公開契約       | `lib/types.ts`                               | 設定、判定結果、診断、メッセージの型          |
-| ルール判定     | `lib/filter/`                                | 正規化、カテゴリ、スパム、アクション決定      |
-| AI通信         | `lib/batch-queue.ts`、`lib/lm-studio.ts`     | バッチ、タイムアウト、JSON Schema検証         |
-| YouTube統合    | `lib/youtube/`                               | DOM抽出と非破壊Renderer                       |
-| 設定保存       | `lib/settings.ts`、`lib/storage.ts`          | 既定値、検証、`storage.sync`永続化            |
-| UI             | `entrypoints/popup/`、`entrypoints/options/` | 簡易操作と詳細設定                            |
+| 領域           | 主なファイル                                 | 責務                                                        |
+| -------------- | -------------------------------------------- | ----------------------------------------------------------- |
+| 拡張設定       | `wxt.config.ts`                              | Manifest共通設定、通常権限、任意ホスト権限                  |
+| Content Script | `entrypoints/content.ts`                     | DOM監視、重複防止、処理のオーケストレーション               |
+| Service Worker | `entrypoints/background.ts`                  | LM Studio通信とランタイムメッセージ処理                     |
+| 公開契約       | `lib/types.ts`                               | 設定、判定結果、診断、メッセージの型                        |
+| ルール判定     | `lib/filter/`                                | 正規化、feature抽出、カテゴリスコア、スパム、アクション決定 |
+| AI通信         | `lib/batch-queue.ts`、`lib/lm-studio.ts`     | バッチ、タイムアウト、JSON Schema検証                       |
+| YouTube統合    | `lib/youtube/`                               | DOM抽出と非破壊Renderer                                     |
+| Flow Chat連携  | `lib/integrations/flow-chat/`                | `ylcfr-*` DOMプロトコル、締切、メトリクス                   |
+| 設定保存       | `lib/settings.ts`、`lib/storage.ts`          | 既定値、検証、`storage.sync`永続化                          |
+| UI             | `entrypoints/popup/`、`entrypoints/options/` | 簡易操作と詳細設定                                          |
 
 ## 状態と保存先
 
-`chrome.storage.sync`へ保存するのは`SettingsV1`だけです。プリセット、閾値、語句、LM Studio設定を含み、`schemaVersion: 1`で将来の移行境界を示します。
+`chrome.storage.sync`へ保存するのは`SettingsV1`だけです。プリセット、閾値、語句、LM Studio設定、Flow Chat連携のON/OFFと除外基準を含み、`schemaVersion: 1`で将来の移行境界を示します。
 
 判定履歴、処理済みDOM、同文キャッシュはチャットフレームのメモリ内にだけ保持し、タブ終了時に破棄します。デバッグ履歴は直近200件、同文キャッシュは最大500件で、キャッシュのTTLは10分です。
 
+ルールID・feature・カテゴリ別スコアは診断用の結果にだけ付加し、設定同期や外部サービスへ保存しません。評価用の`tests/evaluation/`には本文と匿名化した出典IDだけを置き、投稿者IDや生ログは含めません。
+
 ポップアップ表示用の件数と接続状態だけは、Service Workerの休止をまたいで参照できるよう`chrome.storage.session`へ一時保存します。コメント本文や判定理由は含めず、タブの読み込み直し・終了時に削除します。
+
+Flow Chat連携を有効にした場合だけ、Content Scriptが`html.ylcfr-active`を付けます。`#items`直下でFlow Chatが観測し得る要素は、ルール・文脈判定または解析対象外の即時許可で、700〜800msの締切より前に必ず`ylcfr-filtered-message`へ確定します。除外する要素は`ylcfr-deleted-message`を先に付けます。Flow Chatが未導入でもクラスは無害で、通常のYouTube表示判定とは独立しています。遅れて届くLM Studio結果はYouTubeの表示だけを更新し、確定済みのFlow Chat結果へ再適用しません。メトリクスはデバッグモード中だけフレーム単位のメモリへ送り、Service Workerでは集計値だけを保持します。
 
 ## 失敗時の設計
 
 LM Studioは補助判定であり、必須依存ではありません。権限拒否、未起動、HTTPエラー、タイムアウト、不正JSON、非対応レスポンスのいずれでもルール結果へ戻ります。AI待機によってYouTubeチャット全体を停止させてはいけません。
 
 RendererはYouTubeの元ノードを削除しません。属性とCSSで表示を制御するため、フィルター解除やユーザー操作による原文復元が可能です。`ぼかし`は本文だけ、`非表示`は同じぼかしをアイコンと発言者IDまで広げます。
+
+Flow Chat側の連携クラスは`lib/integrations/flow-chat/constants.ts`へ隔離しています。現行の公開DOM契約（`ylcfr-active`、`ylcfr-filtered-message`、`ylcfr-deleted-message`）に依存するため、Flow Chat更新時はこのファイルとプロトコルテストを確認します。
 
 ## AI補助判定と一時学習
 

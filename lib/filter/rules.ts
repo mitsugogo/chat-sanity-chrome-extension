@@ -1,9 +1,20 @@
 import type { ConfigurableCategory } from '../types';
+import { extractFeatures } from './features';
+import { isObviouslySafe } from './obvious-safe';
 
 export interface RuleMatch {
   category: ConfigurableCategory;
   score: number;
   reason: string;
+  ruleId?: string;
+  feature?: string;
+}
+
+export interface RuleScore {
+  score: number;
+  categoryScores: Partial<Record<ConfigurableCategory, number>>;
+  reasons: string[];
+  ruleIds: string[];
 }
 
 interface CategoryRule {
@@ -285,10 +296,14 @@ const RULES: CategoryRule[] = [
   },
 ];
 
-export function matchRules(text: string): RuleMatch[] {
+export function matchRules(
+  text: string,
+  knownNames: string[] = [],
+): RuleMatch[] {
+  if (isObviouslySafe(text)) return [];
   const matches: RuleMatch[] = [];
   for (const rule of RULES) {
-    for (const pattern of rule.patterns) {
+    for (const [patternIndex, pattern] of rule.patterns.entries()) {
       const occurrence = pattern.expression.exec(text);
       if (!occurrence) continue;
       // 「指示厨黙れ」のようにコメント欄の相手へ向いた表現は、
@@ -299,6 +314,11 @@ export function matchRules(text: string): RuleMatch[] {
         /(?:黙れ|黙ってくれ|うざい|帰れ|消えろ|無視しろ)/u.test(text)
       )
         continue;
+      const peacekeeping =
+        /(?:荒らし|指示(?:厨|コメ)|自治厨).{0,12}(?:無視|スルー|放置|やめ|控え)/u.test(
+          text,
+        );
+      if (rule.category === 'backseat' && peacekeeping) continue;
       const tail = text.slice(occurrence.index + occurrence[0].length);
       // Quoting an insult to discourage it should not become an insult itself.
       if (
@@ -307,12 +327,104 @@ export function matchRules(text: string): RuleMatch[] {
         )
       )
         continue;
+
+      const tentative = /(?:かも|かな|どうかな|と思う|てもいい)/u.test(text);
+      const score =
+        rule.category === 'backseat' && pattern.score >= 0.8 && tentative
+          ? 0.42
+          : rule.category === 'meta_conflict' &&
+              pattern.score >= 0.6 &&
+              peacekeeping
+            ? 0.3
+            : pattern.score;
       matches.push({
         category: rule.category,
-        score: pattern.score,
-        reason: pattern.reason,
+        score,
+        reason:
+          score === 0.42 && rule.category === 'backseat'
+            ? '行動誘導の文脈確認候補'
+            : score === 0.3 && rule.category === 'meta_conflict'
+              ? '平和化を促すコメント欄介入（低確信）'
+              : pattern.reason,
+        ruleId: `${rule.category.toUpperCase()}_${String(patternIndex + 1).padStart(3, '0')}`,
       });
     }
   }
+
+  // Feature detectors cover constructions that are difficult to express as a
+  // single phrase rule (for example 「○○が悪い」 and 「○○向いてない」).
+  const features = extractFeatures(text, knownNames);
+  const addFeature = (
+    category: ConfigurableCategory,
+    result: {
+      matched: boolean;
+      score: number;
+      reason?: string;
+      feature?: string;
+    },
+    id: string,
+  ) => {
+    if (!result.matched || !result.reason) return;
+    matches.push({
+      category,
+      score: result.score,
+      reason: result.reason,
+      ruleId: id,
+      ...(result.feature ? { feature: result.feature } : {}),
+    });
+  };
+  addFeature('blame', features.blame, 'BLAME_FEATURE_001');
+  addFeature('personal_attack', features.abilityAttack, 'ATTACK_ABILITY_001');
+  addFeature('comparison', features.comparison, 'COMPARISON_FEATURE_001');
+  addFeature('complaint', features.complaint, 'COMPLAINT_FEATURE_001');
+
+  if (features.imperative.matched) {
+    const hasPersonTarget =
+      features.target.targetType === 'person' ||
+      features.target.targetType === 'role';
+    const isKnownAmbiguousQuestion =
+      features.imperative.feature === 'tentative-imperative' ||
+      features.imperative.feature === 'suggestion-pressure' ||
+      /(?:何してんの|何してるんだ|リーダー|船長|ちゃんとして)/u.test(text);
+    const isInstructionPhrase =
+      /(?:指示|一人ずつ|一緒に行動|早く|はよ|ちゃんと|少しは)/u.test(text);
+    if (hasPersonTarget || isKnownAmbiguousQuestion || isInstructionPhrase)
+      addFeature('backseat', features.imperative, 'BACKSEAT_FEATURE_001');
+  }
+
+  // Peacekeeping is exposed by detectMetaConflict for diagnostics and future
+  // settings, but a peacekeeping-only phrase does not become risky here.
+  if (features.metaConflict.aggressive) {
+    matches.push({
+      category: 'meta_conflict',
+      score: features.metaConflict.score,
+      reason: features.metaConflict.reasons[0] ?? 'コメント欄への攻撃的介入',
+      ruleId: 'META_CONFLICT_FEATURE_001',
+      feature: 'aggressive-meta-conflict',
+    });
+  }
   return matches;
+}
+
+/** Aggregate raw rule evidence before profile weights and context are applied. */
+export function scoreRules(text: string, knownNames: string[] = []): RuleScore {
+  const matches = matchRules(text, knownNames);
+  const categoryScores: Partial<Record<ConfigurableCategory, number>> = {};
+  const reasons: string[] = [];
+  const ruleIds: string[] = [];
+  for (const match of matches) {
+    categoryScores[match.category] = Math.max(
+      categoryScores[match.category] ?? 0,
+      match.score,
+    );
+    if (!reasons.includes(match.reason)) reasons.push(match.reason);
+    if (match.ruleId && !ruleIds.includes(match.ruleId))
+      ruleIds.push(match.ruleId);
+  }
+  return {
+    score: Math.max(0, ...Object.values(categoryScores)),
+    categoryScores,
+    reasons,
+    ruleIds,
+  };
 }

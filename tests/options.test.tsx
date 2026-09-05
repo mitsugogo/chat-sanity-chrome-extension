@@ -50,6 +50,12 @@ describe('options', () => {
     expect(
       screen.getByRole('table', { name: 'カテゴリ設定' }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Flow Chat連携' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText('Flow Chat連携を有効にする'),
+    ).not.toBeChecked();
     fireEvent.change(screen.getByLabelText('指示・指示厨の重み'), {
       target: { value: '0.9' },
     });

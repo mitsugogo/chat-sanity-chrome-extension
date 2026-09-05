@@ -38,6 +38,16 @@ describe('チャット文脈', () => {
     expect(tracker.get(65_000)).toBeLessThan(0.25);
   });
 
+  it('カテゴリ別の対立度も独立して減衰する', () => {
+    const tracker = new ConflictScoreTracker();
+    tracker.observe('backseat', 1, 1_000);
+    tracker.observe('backseat', 1, 1_100);
+    tracker.observe('blame', 1, 1_100);
+    expect(tracker.getCategoryLevels(1_100).backseat).toBeGreaterThan(0.5);
+    expect(tracker.getCategoryLevels(1_100).blame).toBeGreaterThan(0.5);
+    expect(tracker.getCategoryLevels(120_000).backseat).toBeLessThan(0.2);
+  });
+
   it('同一投稿者と直近リスク本文だけを返す', () => {
     const authors = new AuthorHistory();
     authors.observe('a', '攻撃1', 1_000, 0.8);
@@ -70,5 +80,15 @@ describe('チャット文脈', () => {
         recentRiskyMessages: ['a', 'b', 'c'],
       }).action,
     ).toBe('allow');
+    const ambiguous = evaluate(
+      message('ちゃんとしてｗ', 3_000),
+      settings,
+      null,
+      {
+        categoryConflict: { backseat: 0.8 },
+      },
+    );
+    expect(ambiguous.reasons).toContain('カテゴリ別の直近対立度による文脈補正');
+    expect(ambiguous.action).toBe('allow');
   });
 });

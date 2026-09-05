@@ -20,6 +20,7 @@ const SAFE_REACTIONS = new Set([
   'がんばれ',
   'がんばって',
   '指示ナイス',
+  'ナイス指示',
 ]);
 
 /** High-volume reactions that do not need semantic classification. */
@@ -36,7 +37,11 @@ export function isObviouslySafe(text: string): boolean {
   if (/^帰れるかな[?？!！]*$/u.test(value)) return true;
   if (/^いける(?:いける)?[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
   if (/^クソ(?:鳥|ドリ)か[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
-  if (/^何してんの[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
+  if (/^動き(?:も|が)いい[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
+  // A bare 「何してんの」 is an ambiguous question and remains eligible for
+  // context/LLM review. Laughter-tagged variants are common reactions.
+  if (/^何してんの[ｗw草笑!！?？〜～ー]+$/u.test(value)) return true;
+  if (/^何してるんだ[ｗw草笑!！?？〜～ー]+$/u.test(value)) return true;
   return false;
 }
 

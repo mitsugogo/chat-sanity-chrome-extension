@@ -10,6 +10,7 @@ import {
   DEFAULT_SETTINGS,
   PRESET_LABELS,
   cleanWords,
+  normalizeFlowChat,
   normalizeLmStudio,
 } from '../../lib/settings';
 import { loadSettings, saveSettings } from '../../lib/storage';
@@ -21,6 +22,7 @@ import type {
   RuntimeMessage,
   RuntimeResponse,
   SettingsV1,
+  FlowChatMetricsSnapshot,
 } from '../../lib/types';
 
 const CATEGORY_DESCRIPTIONS: Record<ConfigurableCategory, string> = {
@@ -68,6 +70,8 @@ export default function App() {
   const [testing, setTesting] = useState(false);
   const [debugEntries, setDebugEntries] = useState<DiagnosticEntry[]>([]);
   const [debugError, setDebugError] = useState('');
+  const [flowMetrics, setFlowMetrics] =
+    useState<FlowChatMetricsSnapshot | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +94,7 @@ export default function App() {
         );
       }
       setDebugEntries(response.entries);
+      setFlowMetrics(response.flowMetrics ?? null);
       setDebugError('');
     } catch (error) {
       setDebugError(
@@ -101,7 +106,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!settings.debugMode) return;
+    if (!settings.debugMode) {
+      setFlowMetrics(null);
+      return;
+    }
     void refreshDebugHistory();
     const interval = window.setInterval(() => {
       void refreshDebugHistory();
@@ -193,6 +201,7 @@ export default function App() {
         type: 'debug:clear',
       } satisfies RuntimeMessage);
       setDebugEntries([]);
+      setFlowMetrics(null);
     }
     setSavedAt(new Date());
   };
@@ -202,6 +211,7 @@ export default function App() {
       type: 'debug:clear',
     } satisfies RuntimeMessage);
     setDebugEntries([]);
+    setFlowMetrics(null);
     setDebugError('');
   };
 
@@ -282,6 +292,7 @@ export default function App() {
             フィルター
           </a>
           <a href="#local-ai">ローカルAI</a>
+          <a href="#flow-chat">Flow Chat連携</a>
           <a href="#diagnostic">診断</a>
           <a href="#debug-history">デバッグ履歴</a>
         </nav>
@@ -407,7 +418,82 @@ export default function App() {
               </div>
             </section>
 
-            <section className="panel">
+            <section className="panel flow-chat-panel" id="flow-chat">
+              <div className="section-heading">
+                <div>
+                  <h2>Flow Chat連携</h2>
+                  <p>
+                    Flow Chat for YouTube
+                    Liveへ、ぼかし相当以上のコメントを流さないためのDOM連携です。
+                  </p>
+                </div>
+              </div>
+              <div className="setting-row">
+                <span>
+                  <strong>Flow Chat連携を有効にする</strong>
+                  <small>Flow Chatが入っていない場合も動作に影響しません</small>
+                </span>
+                <Switch
+                  checked={settings.flowChat.enabled}
+                  onChange={(enabled) =>
+                    setSettings((current) => ({
+                      ...current,
+                      flowChat: { ...current.flowChat, enabled },
+                    }))
+                  }
+                  label="Flow Chat連携を有効にする"
+                />
+              </div>
+              <label className="field">
+                <span>Flow Chat側の除外基準</span>
+                <select
+                  value={settings.flowChat.exclusionLevel}
+                  aria-label="Flow Chat側の除外基準"
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (
+                      value !== 'blur' &&
+                      value !== 'hide' &&
+                      value !== 'custom'
+                    )
+                      return;
+                    setSettings((current) => ({
+                      ...current,
+                      flowChat: {
+                        ...current.flowChat,
+                        exclusionLevel: value,
+                      },
+                    }));
+                  }}
+                >
+                  <option value="blur">ぼかし以上（推奨）</option>
+                  <option value="hide">非表示のみ</option>
+                  <option value="custom">カスタムスコア</option>
+                </select>
+              </label>
+              {settings.flowChat.exclusionLevel === 'custom' ? (
+                <AiNumber
+                  label="Flow Chat除外スコア"
+                  value={settings.flowChat.customThreshold ?? 0.75}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(customThreshold) =>
+                    setSettings((current) => ({
+                      ...current,
+                      flowChat: { ...current.flowChat, customThreshold },
+                    }))
+                  }
+                />
+              ) : null}
+              <p className="privacy-note">
+                コメント本文や通信をFlow
+                Chatへ渡しません。判定は既存のルールと文脈スコアで即時に確定し、遅れて届くローカルAI結果はFlow
+                Chat側へ再適用しません。
+              </p>
+            </section>
+
+            <section className="panel category-panel">
               <div className="section-heading">
                 <div>
                   <h2>カテゴリ設定</h2>
@@ -720,6 +806,7 @@ export default function App() {
         <DebugHistoryPanel
           enabled={settings.debugMode}
           entries={debugEntries}
+          flowMetrics={flowMetrics}
           error={debugError}
           onRefresh={() => void refreshDebugHistory()}
           onClear={() => void clearDebugHistory()}
@@ -857,6 +944,20 @@ function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
           <li key={reason}>{reason}</li>
         ))}
       </ul>
+      {entry.ruleIds && entry.ruleIds.length > 0 ? (
+        <p className="diagnostic-features">
+          ルールID: {entry.ruleIds.join('・')}
+        </p>
+      ) : null}
+      {entry.features && entry.features.length > 0 ? (
+        <p className="diagnostic-features">
+          特徴: {entry.features.join('・')}
+          {typeof entry.contextAdjustment === 'number' &&
+          entry.contextAdjustment !== 0
+            ? `（文脈補正 ${entry.contextAdjustment > 0 ? '+' : ''}${entry.contextAdjustment.toFixed(2)}）`
+            : ''}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -864,12 +965,14 @@ function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
 function DebugHistoryPanel({
   enabled,
   entries,
+  flowMetrics,
   error,
   onRefresh,
   onClear,
 }: {
   enabled: boolean;
   entries: DiagnosticEntry[];
+  flowMetrics: FlowChatMetricsSnapshot | null;
   error: string;
   onRefresh: () => void;
   onClear: () => void;
@@ -924,10 +1027,35 @@ function DebugHistoryPanel({
               <p className="debug-history-reason">
                 {sourceLabel(entry.source)}: {entry.reasons.join('・')}
               </p>
+              {entry.ruleIds && entry.ruleIds.length > 0 ? (
+                <p className="debug-history-features">
+                  ルールID: {entry.ruleIds.join('・')}
+                </p>
+              ) : null}
+              {entry.features && entry.features.length > 0 ? (
+                <p className="debug-history-features">
+                  特徴: {entry.features.join('・')}
+                  {typeof entry.contextAdjustment === 'number' &&
+                  entry.contextAdjustment !== 0
+                    ? `（文脈補正 ${entry.contextAdjustment > 0 ? '+' : ''}${entry.contextAdjustment.toFixed(2)}）`
+                    : ''}
+                </p>
+              ) : null}
+              {entry.flow ? (
+                <p className="debug-history-features">
+                  Flow Chat: {entry.flow.excluded ? '除外' : '許可'}・
+                  {flowSourceLabel(entry.flow.decisionSource)}・閾値{' '}
+                  {entry.flow.threshold.toFixed(2)}・
+                  {entry.flow.elapsedMs.toFixed(1)}ms
+                </p>
+              ) : null}
             </li>
           ))}
         </ol>
       )}
+      {enabled && flowMetrics ? (
+        <FlowMetricsSummary metrics={flowMetrics} />
+      ) : null}
       <p className="privacy-note">
         履歴は拡張のメモリだけに保持し、タブの再読み込み・終了またはデバッグOFFで消去します。ユーザー名は記録しません。
       </p>
@@ -942,15 +1070,43 @@ function categoryLabel(category: DiagnosticEntry['category']): string {
   return CATEGORY_LABELS[category];
 }
 
+function FlowMetricsSummary({ metrics }: { metrics: FlowChatMetricsSnapshot }) {
+  return (
+    <div className="flow-metrics" aria-label="Flow Chat連携メトリクス">
+      <strong>Flow Chat連携メトリクス</strong>
+      <span>受信 {metrics.received}</span>
+      <span>分類 {metrics.classified}</span>
+      <span>除外 {metrics.excluded}</span>
+      <span>許可 {metrics.allowed}</span>
+      <span>キャッシュ {metrics.cacheHits}</span>
+      <span>タイムアウト {metrics.timeouts}</span>
+      <span>エラー {metrics.errors}</span>
+      <span>平均 {metrics.averageLatency.toFixed(1)}ms</span>
+      <span>最大 {metrics.maxLatency.toFixed(1)}ms</span>
+    </div>
+  );
+}
+
 function sourceLabel(source: DiagnosticEntry['source']): string {
   if (source === 'lm-studio') return 'ローカルAI';
   if (source === 'fallback') return 'ルール（AI失敗）';
   return 'ルール';
 }
 
+function flowSourceLabel(
+  source: NonNullable<DiagnosticEntry['flow']>['decisionSource'],
+): string {
+  if (source === 'context') return '文脈';
+  if (source === 'cache') return 'キャッシュ';
+  if (source === 'llm-fast') return '高速AI';
+  if (source === 'fail-open') return 'fail-open';
+  return 'ルール';
+}
+
 function sanitizeSettings(value: SettingsV1): SettingsV1 {
   const next = structuredClone(value);
   next.lmStudio = normalizeLmStudio(next.lmStudio);
+  next.flowChat = normalizeFlowChat(next.flowChat);
   next.blockedWords = cleanWords(next.blockedWords);
   next.allowedWords = cleanWords(next.allowedWords);
   for (const preset of Object.keys(next.profiles) as PresetId[]) {

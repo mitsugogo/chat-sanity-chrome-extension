@@ -119,8 +119,16 @@ body {
 .behavior-panel,
 .ai-panel,
 .diagnostic-panel,
-.debug-history-panel {
+.debug-history-panel,
+.flow-chat-panel,
+.category-panel {
   padding: 18px;
+}
+
+.flow-chat-panel {
+  display: grid;
+  gap: 15px;
+  scroll-margin-top: 20px;
 }
 
 .section-heading {
@@ -440,6 +448,15 @@ select,
   line-height: 1.7;
 }
 
+.diagnostic-features,
+.debug-history-features {
+  margin: 6px 0 0;
+  color: #718095;
+  font-size: 10px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 .save-bar {
   display: flex;
   align-items: center;
@@ -531,6 +548,24 @@ select,
   color: #9a3737;
 }
 
+.flow-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.flow-metrics strong {
+  width: 100%;
+  color: #37475a;
+  font-size: 11px;
+}
+
 .save-bar button {
   min-width: 190px;
   min-height: 46px;
@@ -582,7 +617,7 @@ select,
     padding: 16px;
   }
   .sidebar nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     margin-top: 18px;
   }
   .sidebar nav a {

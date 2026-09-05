@@ -4,6 +4,7 @@ import type {
   FilterMode,
   PresetId,
   LmStudioSettings,
+  FlowChatSettings,
   PresetProfile,
   SettingsV1,
 } from './types';
@@ -121,6 +122,12 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
     responseFormat: 'json_schema',
     sessionLearning: true,
   },
+  flowChat: {
+    enabled: false,
+    exclusionLevel: 'blur',
+    customThreshold: 0.75,
+    useLlmFastPath: false,
+  },
 };
 
 const cloneDefaults = (): SettingsV1 => structuredClone(DEFAULT_SETTINGS);
@@ -159,8 +166,41 @@ export function normalizeSettings(value: unknown): SettingsV1 {
       ),
     },
     lmStudio: normalizeLmStudio(partial.lmStudio),
+    flowChat: normalizeFlowChat(partial.flowChat),
     blockedWords: cleanWords(partial.blockedWords),
     allowedWords: cleanWords(partial.allowedWords),
+  };
+}
+
+export function normalizeFlowChat(
+  value: Partial<FlowChatSettings> | undefined,
+): FlowChatSettings {
+  const defaults = DEFAULT_SETTINGS.flowChat;
+  const supplied =
+    value && typeof value === 'object'
+      ? value
+      : ({} as Partial<FlowChatSettings>);
+  return {
+    enabled:
+      typeof supplied.enabled === 'boolean'
+        ? supplied.enabled
+        : defaults.enabled,
+    exclusionLevel:
+      supplied.exclusionLevel === 'hide' ||
+      supplied.exclusionLevel === 'custom' ||
+      supplied.exclusionLevel === 'blur'
+        ? supplied.exclusionLevel
+        : defaults.exclusionLevel,
+    customThreshold: finiteClamp(
+      supplied.customThreshold,
+      defaults.customThreshold ?? 0.75,
+      0,
+      1,
+    ),
+    useLlmFastPath:
+      typeof supplied.useLlmFastPath === 'boolean'
+        ? supplied.useLlmFastPath
+        : (defaults.useLlmFastPath ?? false),
   };
 }
 

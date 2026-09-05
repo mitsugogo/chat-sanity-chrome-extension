@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeText } from '../lib/filter/normalize';
-import { matchRules } from '../lib/filter/rules';
+import { matchRules, scoreRules } from '../lib/filter/rules';
 
 const matchesFor = (text: string) => matchRules(normalizeText(text));
 const categoriesFor = (text: string) =>
@@ -14,9 +14,12 @@ describe('日本語チャットルール', () => {
     ['しっかりしろリーダー', 'backseat'],
     ['少しは一緒に行動しろよ', 'backseat'],
     ['○○のせいだろ', 'blame'],
+    ['○○が悪い', 'blame'],
     ['みこちをリーダーにするのが悪い', 'blame'],
     ['○○ならもっと上手くやる', 'comparison'],
     ['△△の方がリーダー向いてる', 'comparison'],
+    ['○○向いてない', 'personal_attack'],
+    ['○○は説明が下手', 'personal_attack'],
     ['○○に行け', 'backseat'],
     ['指示厨黙ってくれ', 'meta_conflict'],
     ['コメ欄治安悪いな', 'meta_conflict'],
@@ -35,7 +38,10 @@ describe('日本語チャットルール', () => {
     'いけるいける',
     'クソ鳥か？ｗ',
     '指示ナイス',
+    'ナイス指示',
     '何してんのｗｗｗ',
+    '何してるんだｗｗ',
+    '動きもいい',
     'どうしたら？',
     'それ好きなの？',
     'このあとどうする？',
@@ -66,5 +72,12 @@ describe('日本語チャットルール', () => {
 
   it('引用した攻撃語を注意する文は攻撃として扱わない', () => {
     expect(categoriesFor('暴言の「死ね」は言わないで')).toEqual([]);
+  });
+
+  it('RuleScoreへカテゴリ別スコアと安定したルールIDを集約する', () => {
+    const score = scoreRules(normalizeText('○○が悪い'));
+    expect(score.categoryScores.blame).toBeGreaterThanOrEqual(0.9);
+    expect(score.ruleIds).toContain('BLAME_FEATURE_001');
+    expect(score.reasons).toContain('責任を特定対象へ押し付ける表現');
   });
 });

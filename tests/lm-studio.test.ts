@@ -173,6 +173,7 @@ describe('response compatibility', () => {
       });
       if (format === 'text') expect(body).not.toHaveProperty('response_format');
       else expect(body.response_format.type).toBe(format);
+      expect(body.reasoning_effort).toBe('none');
     },
   );
   it('互換形式でも不正JSONは受け入れない', async () => {

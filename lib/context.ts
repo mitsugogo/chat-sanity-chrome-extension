@@ -12,11 +12,23 @@ const CATEGORY_IMPACT: Partial<Record<FilterCategory, number>> = {
 
 export class ConflictScoreTracker {
   private score = 0;
+  private readonly categoryScores = new Map<FilterCategory, number>();
   private updatedAt: number | undefined;
 
   get(timestamp: number): number {
     this.decay(timestamp);
     return Math.min(1, this.score / 6);
+  }
+
+  /** Category-local context levels used for ambiguous comments. */
+  getCategoryLevels(
+    timestamp: number,
+  ): Partial<Record<FilterCategory, number>> {
+    this.decay(timestamp);
+    const levels: Partial<Record<FilterCategory, number>> = {};
+    for (const [category, value] of this.categoryScores)
+      if (value > 0.01) levels[category] = Math.min(1, value / 3);
+    return levels;
   }
 
   observe(category: FilterCategory, risk: number, timestamp: number): void {
@@ -26,11 +38,22 @@ export class ConflictScoreTracker {
       6,
       this.score + impact * Math.max(0, Math.min(1, risk)),
     );
+    if (impact > 0) {
+      this.categoryScores.set(
+        category,
+        Math.min(
+          3,
+          (this.categoryScores.get(category) ?? 0) +
+            impact * Math.max(0, Math.min(1, risk)),
+        ),
+      );
+    }
     this.updatedAt = timestamp;
   }
 
   clear(): void {
     this.score = 0;
+    this.categoryScores.clear();
     this.updatedAt = undefined;
   }
 
@@ -45,7 +68,13 @@ export class ConflictScoreTracker {
       return;
     }
     // Half-life of roughly 45 seconds; score is local session state only.
-    this.score *= Math.exp(-elapsed / 65_000);
+    const decay = Math.exp(-elapsed / 65_000);
+    this.score *= decay;
+    for (const [category, value] of this.categoryScores) {
+      const next = value * decay;
+      if (next < 0.01) this.categoryScores.delete(category);
+      else this.categoryScores.set(category, next);
+    }
     this.updatedAt = timestamp;
   }
 }

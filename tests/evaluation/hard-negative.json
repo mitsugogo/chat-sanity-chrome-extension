@@ -1,0 +1,68 @@
+[
+  {
+    "text": "ししろんｗ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "おもしろいｗ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "さっきもそうだった",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "動きもいい",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "帰れるかな？",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "いけるいける",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "クソ鳥か？ｗ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "指示ナイス",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "ナイス指示",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "何してんのｗｗｗ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "何してるんだｗｗ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "BMoPMmtKosQ"
+  }
+]

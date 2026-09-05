@@ -1,0 +1,38 @@
+[
+  {
+    "text": "何してんの",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "それでいいの？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "大丈夫か？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "リーダー頼むぞ",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "ちゃんとしてｗ",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "指示してあげてもいいかも",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "BMoPMmtKosQ"
+  }
+]

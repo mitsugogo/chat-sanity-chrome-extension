@@ -98,6 +98,9 @@ export async function classifyWithLmStudio(
         model,
         temperature: 0,
         stream: false,
+        // Chat classification only needs the final JSON. Some reasoning
+        // models otherwise consume the whole output budget before answering.
+        reasoning_effort: 'none',
         max_tokens: Math.max(400, items.length * 100),
         messages: [
           {

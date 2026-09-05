@@ -15,6 +15,12 @@ describe('AI settings migration', () => {
       sessionLearning: true,
     });
     expect(settings.debugMode).toBe(false);
+    expect(settings.flowChat).toEqual({
+      enabled: false,
+      exclusionLevel: 'blur',
+      customThreshold: 0.75,
+      useLlmFastPath: false,
+    });
   });
   it('バッチと曖昧域と時間を契約内へ制限する', () => {
     expect(
@@ -85,5 +91,24 @@ describe('AI settings migration', () => {
       hide: 0.9,
     });
     expect(settings.profiles.event.hideSpam).toBe(true);
+  });
+
+  it('Flow Chat設定を安全な値へ補完する', () => {
+    expect(
+      normalizeSettings({
+        schemaVersion: 1,
+        flowChat: {
+          enabled: true,
+          exclusionLevel: 'custom',
+          customThreshold: 2,
+          useLlmFastPath: 'yes',
+        },
+      }).flowChat,
+    ).toEqual({
+      enabled: true,
+      exclusionLevel: 'custom',
+      customThreshold: 1,
+      useLlmFastPath: false,
+    });
   });
 });

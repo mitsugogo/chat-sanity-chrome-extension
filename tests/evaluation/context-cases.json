@@ -1,0 +1,16 @@
+[
+  {
+    "messages": [
+      "一人ずつ指示してあげて",
+      "なんで指示しないの",
+      "リーダー仕事しろｗ"
+    ],
+    "expectedConflictIncrease": true,
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "messages": ["何してんのｗｗｗ", "草", "草草", "おもろいｗ"],
+    "expectedConflictIncrease": false,
+    "source": "BMoPMmtKosQ"
+  }
+]

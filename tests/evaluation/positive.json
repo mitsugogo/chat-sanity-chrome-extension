@@ -1,0 +1,74 @@
+[
+  {
+    "text": "リーダー仕事しろ",
+    "expectedCategory": "backseat",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "ちゃんと指示しろ",
+    "expectedCategory": "backseat",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "少しは一緒に行動しろよ",
+    "expectedCategory": "backseat",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "○○のせいだろ",
+    "expectedCategory": "blame",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "○○が悪い",
+    "expectedCategory": "blame",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "○○をリーダーにしたのが悪い",
+    "expectedCategory": "blame",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "○○は説明が下手",
+    "expectedCategory": "personal_attack",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "○○向いてない",
+    "expectedCategory": "personal_attack",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "○○ならもっと上手くできる",
+    "expectedCategory": "comparison",
+    "expectedAction": "blur",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "△△の方がリーダー向いてる",
+    "expectedCategory": "comparison",
+    "expectedAction": "blur",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "指示厨黙れ",
+    "expectedCategory": "meta_conflict",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "自治厨うざい",
+    "expectedCategory": "meta_conflict",
+    "expectedAction": "hide",
+    "source": "BMoPMmtKosQ"
+  }
+]
