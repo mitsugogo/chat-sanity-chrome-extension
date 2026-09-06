@@ -28,6 +28,7 @@ export interface ExtractedFeatures {
   imperative: FeatureResult;
   blame: FeatureResult;
   abilityAttack: FeatureResult;
+  personalAttack: FeatureResult;
   comparison: FeatureResult;
   metaConflict: MetaConflictFeatures;
   complaint: FeatureResult;
@@ -37,46 +38,85 @@ export interface ExtractedFeatures {
 }
 
 const ROLE_TARGET =
-  /(?:リーダー|船長|先生|先輩|後輩|配信者|みこち|ころね|ぺこら|ししろん)/u;
+  /(?:リーダー|船長|先生|先輩|後輩|配信者|参加者|メンバー|みこち|ころね|ぺこら|ししろん|あずきち)/u;
 const PRONOUN_TARGET = /(?:お前|こいつ|あいつ|この人|あの人|君|あなた)/u;
+const PERSON_GROUP_TARGET = /(?:別の?人|他の?人|誰か|メンバー)/u;
 const PLACEHOLDER_TARGET = /(?:○○|△△|□□|☆☆|名前|某人)/u;
 const NAME_SUFFIX_TARGET =
   /[ぁ-んァ-ヶ一-龠A-Za-z0-9]{2,16}(?:さん|ちゃん|くん|氏|先輩)/u;
 const GAME_OBJECT =
-  /(?:ゲーム|敵|ボス|鳥|ドリ|武器|アイテム|装備|マップ|拠点|建物|キャラ|キャラクター|モブ|NPC|動き|操作|プレイ|説明|判断|戦い方)/u;
+  /(?:ゲーム|敵|虫|恐竜|ボス|モブ|npc|NPC|鳥|ドリ|ワニ|プテラ|レックス|パイロ|鉄|斧|武器|アイテム|装備|マップ|拠点|建物|キャラ|キャラクター|動き|操作|プレイ|説明|判断|戦い方|範囲|攻撃|ギミック)/u;
+const META_TARGET = /(?:指示厨|自治厨|荒らし|指示コメ)/u;
+const VIEWER_GROUP =
+  /(?:俺ら|おれら|わいら|35p|みこぴー|視聴者|リスナー)のせい/u;
+const BLAME_NEGATION =
+  /のせい(?:では|でも|じゃ)ない|のせいに(?:しない|するな)/u;
 
 const STRONG_IMPERATIVE = [
-  /(?:^|[、。])(?:しろ|やれ|行け|いけ|戻れ|急げ|見ろ|聞け|待て|使え|選べ|読め|やめろ|するな)(?:よ|な)?[!！。?？ｗw草笑〜～ー]*$/u,
-  /(?:早く|はよ|ちゃんと|しっかり|さっさと|今すぐ).{0,24}(?:しろ|やれ|行け|いけ|戻れ|急げ|見ろ|聞け|待て|使え|選べ|読め|やめろ|するな)(?:よ|な)?[!！。?？ｗw草笑〜～ー]*$/u,
+  /(?:^|[、。])(?:しろ|やれ|行け|いけ|戻れ|急げ|見ろ|聞け|待て|使え|選べ|読め|やめろ|するな)(?:よ|な|って)?[!！。?？ｗw草笑〜～ー]*$/u,
+  /(?:早く|はよ|ちゃんと|しっかり|さっさと|今すぐ).{0,24}(?:しろ|やれ|行け|いけ|戻れ|急げ|見ろ|聞け|待て|使え|選べ|読め|やめろ|するな)(?:よ|な|って)?[!！。?？ｗw草笑〜～ー]*$/u,
+  /(?:慣れろ|食え|食べろ|逃げろ|探せ|気づけ|乗れ|降りろ|置け|捨てろ|持て|渡せ|入れろ)(?:よ|な|って)?[!！。?？ｗw草笑〜～ー]*$/u,
 ];
+const FRIENDLY_IMPERATIVE =
+  /(?:しなよ|やりなよ|行きなよ|戻りなよ|見なよ|探しなよ|使いなよ|食べなよ|確認しなよ)(?:[!！。?？ｗw草笑〜～ー]*)$/u;
+const ACTION_SUGGESTIONS = [
+  /(?:確認|共有|連絡|報告|参加|回収|準備|リスポーン|テイム|回復|練習|拡張)(?:したら|してみたら|しといたら|しておいたら|すれば|してみれば)[?？]?$/u,
+  /(?:見|聞|行|戻|使|探|食べ|逃げ|産ませ)(?:れば|けば|ったら)[?？]?$/u,
+  /(?:入れ|置い|渡し|預け|持っ)(?:とけば|ておけば)[?？]?$/u,
+];
+const ACTION_ADVICE =
+  /(?:確認|共有|連絡|報告|参加|回収|準備|リスポーン|テイム|回復|練習|拡張|行動|探し|使い|見|聞|行っ|戻っ|置い|渡し|預け|持っ|食べ|逃げ|産ませ|やめ|止め)(?:た方|たほう)が(?:いい|良い)/u;
+const FORMAL_IMPERATIVE =
+  /(?:しなさい|見なさい|追跡しなさい|指示しなさい)(?:[!！。?？ｗw草笑〜～ー]*)$/u;
+const SHORT_ACTION_IMPERATIVE =
+  /(?:確認しな|共有しな|連絡しな|探しな|戻りな|行きな|使いな|乗りな|食べな|倒しな|迂回しな)(?:[!！。?？ｗw草笑〜～ー]*)$/u;
 const SOFT_IMPERATIVE = [
-  /(?:した方|したほう)が(?:いい|良い)/u,
   /(?:やめて|やめる|止めて).{0,8}(?:ください|ほしい)/u,
   /(?:してください|してほしい|してね|してあげて)(?:[!！。?？ｗw草笑〜～ー]*)$/u,
+  /(?:して|やって|見て|確認して|共有して|連絡して|報告して|食べて|食って|気づいて|助けて|待って|使って|戻って|行って|乗って|置いて|渡して|入れて)くれ(?:[!！。?？ｗw草笑〜～ー]*)$/u,
   /(?:何してんの|何してるんだ|何してるの)[?？]?$/u,
   /(?:リーダー|船長|先生).{0,8}(?:頼む|お願い|頑張って|がんばって)[!！。?？ｗwぞよね]*$/u,
   /^ちゃんとして[よね]?[!！。?？ｗw草笑〜～ー]*$/u,
   /^(?:それでいいの|大丈夫か)[?？]?[ｗw]*$/u,
 ];
+const ACTION_NEGATIVE_QUESTION =
+  /(?:なんで|どうして).{0,20}(?:食べない|逃げない|探さない|使わない|産ませない|戻らない|確認しない|共有しない|連絡しない|役割分担しない|しない|やらない|行かない|見ない)(?:の|ん|んだ|んや|のん)?[?？ｗw草笑〜～ー]*$/u;
+const PRESSURE_REQUEST =
+  /(?:頼むから|頼む).{0,24}(?:気づいて|食べて|食って|確認して|共有して|連絡して|報告して|行って|戻って|して|やって)くれ(?:[!！。?？ｗw草笑〜～ー]*)$/u;
 const TENTATIVE =
   /(?:かも|かな|どうかな|と思う|てもいい|たらいいかも|方がいいかも)/u;
 const BLAME_PREDICATE =
   /(?:のせい|(?:は|が)悪い|だからこうなった|戦犯|足を引っ張(?:る|ってる)|責任取(?:れ|って))/u;
 const ABILITY_NEGATIVE =
-  /(?:下手(?:すぎ|過ぎ)?|頭悪|理解してない|センスない|向いてない|何もできない|使えない|才能ない|雑魚|ゴミ|終わってる)/u;
+  /(?:下手(?:すぎ|過ぎ)?|頭悪|理解してない|センスない|向いてない|何もできない|使えない|才能ない|無能|雑魚|ゴミ)/u;
+const PERSONAL_INSULT = /(?:きもい|キモい|うざい)/u;
 const COMPARISON_PATTERNS = [
   /なら.{0,16}(?:もっと|上手く|うまく|できる|マシ)/u,
-  /より.{0,20}(?:の方が|のほうが)/u,
-  /(?:の方が|のほうが).{0,16}(?:向いてる|向いている|上手い|うまい|マシ|いい|良い)/u,
+  /より.{0,20}(?:の方が|のほうが).{0,16}(?:向いてる|向いている|上手い|うまい|下手|マシ|できる|いい|良い)/u,
+  /(?:の方が|のほうが).{0,16}(?:向いてる|向いている|上手い|うまい|下手|マシ|できる|いい|良い)/u,
   /(?:に任せれば|に任せた方が).{0,12}(?:よかった|良かった|いい|良い)/u,
 ];
 const AGGRESSIVE_META =
-  /(?:指示厨|自治厨|荒らし|指示コメ).{0,16}(?:黙れ|黙ってくれ|うざい|多すぎ|沸いて|帰れ|消えろ|無視しろ|無視推奨|仕切るな)|(?:コメ欄|コメント欄).{0,16}(?:荒れてる|治安悪い|うるさい|地獄|最悪)|(?:ブロック推奨|通報推奨|無視推奨|仕切るな)/u;
+  /(?:指示厨|自治厨|荒らし|指示コメ).{0,16}(?:黙れ|黙ってくれ|うざい|多すぎ|沸いて|帰れ|消えろ|無視しろ|無視推奨|仕切るな|無能|バカ|馬鹿|アホ|頭悪|きもい|キモい)|(?:コメ欄|コメント欄).{0,16}(?:荒れてる|治安悪い|うるさい|地獄|最悪)|(?:ブロック推奨|通報推奨|無視推奨|仕切るな)/u;
 const PEACEKEEPING_META =
-  /(?:みんな仲良く|荒らし(?:は|を)?(?:無視|スルー|放置)|指示(?:コメ|コメント)?(?:は|を)?(?:やめ|控え)|自治(?:は|を)?(?:やめ|控え)|喧嘩(?:は|を)?(?:やめ|しない)|落ち着いて)/u;
-const COMPLAINT =
-  /(?:テンポ|ペース).{0,8}(?:悪い|遅い|微妙)|(?:流れ|展開|進行).{0,8}(?:微妙|つまら|だるい|ぐだ|進まない|長い|遅い|重い)|(?:画質|音量|音小さい|音量小さい|カクカク|ぐだってる|ぐだぐだ|グダグダ|つまらん|おもんない|面白くない|進まない|長すぎ|遅すぎ|微妙|だるい)/iu;
+  /(?:みんな仲良く|荒らし(?:は|を)?(?:無視|スルー|放置)|指示(?:コメ|コメント)?(?:は|を)?(?:やめ|控え)|自治(?:は|を)?(?:やめ|控え)|喧嘩(?:は|を)?(?:やめ|しない)|落ち着いて|文句.{0,16}(?:言う|言わ).{0,16}(?:応援|やりなよ)|(?:お前ら|みんな|皆|視聴者|リスナー).{0,12}(?:指示|アドバイス).{0,12}(?:するな|やめ|控え|自重)|(?:指示|アドバイス).{0,16}(?:するな|やめ|控え|自重)|(?:コメ欄|コメント欄).{0,12}(?:落ち着け|落ち着いて))/u;
+const COMPLAINT_SUBJECT =
+  /(?:テンポ|ペース|流れ|展開|進行|待ち時間|ロード|準備|集合|説明|話)/u;
+const COMPLAINT_PREDICATE =
+  /(?:悪い|遅い|遅すぎ|微妙|つまら|だるい|ぐだ|進まない|長い|長すぎ|重い)/u;
+const STREAM_STATE_COMPLAINT =
+  /(?:画質悪い|音小さい|音量小さい|カクカク|ぐだってる|グダってる)/u;
+const POSITIVE_COMPLAINT_CONTEXT = /(?:楽し|草|ｗ|w|好き|醍醐味)/iu;
 const QUESTION = /[?？](?:[ｗw草笑]*)$/u;
+const URGENCY = /(?:早く|はよ|ちゃんと|しっかり|さっさと|今すぐ|いい加減)/u;
+const ACTION_NECESSITY =
+  /(?:食べ|行|戻|回復|迂回|逃げ|確認|共有|連絡|使|乗|準備|回収|探)ないと/u;
+const ACTION_OBLIGATION =
+  /(?:食べる|行く|戻る|回復する|迂回する|逃げる|確認する|共有する|連絡する|使う|乗る|準備する|回収する|探す|やる|帰って準備する)べき/u;
+
+function hasPersonOrRoleTarget(target: TargetMatch): boolean {
+  return target.targetType === 'person' || target.targetType === 'role';
+}
 
 /** Find a likely person, role, or game-object target without requiring a name list. */
 export function detectTarget(
@@ -92,6 +132,9 @@ export function detectTarget(
   if (role) return { matched: true, targetType: 'role', value: role };
   const pronoun = text.match(PRONOUN_TARGET)?.[0];
   if (pronoun) return { matched: true, targetType: 'person', value: pronoun };
+  const personGroup = text.match(PERSON_GROUP_TARGET)?.[0];
+  if (personGroup)
+    return { matched: true, targetType: 'person', value: personGroup };
   const placeholder = text.match(PLACEHOLDER_TARGET)?.[0];
   if (placeholder)
     return { matched: true, targetType: 'person', value: placeholder };
@@ -101,21 +144,23 @@ export function detectTarget(
   if (object)
     return { matched: true, targetType: 'game-object', value: object };
 
-  // A short token followed by a predicate is a useful person signal for
-  // anonymized examples such as 「太郎が悪い」 or 「○○向いてない」.
-  const predicateTarget = text.match(
-    /(?:^|[\s、])([ぁ-んァ-ヶ一-龠A-Za-z0-9○△□☆]{2,16})(?=(?:は|が|を|に|なら|より|の方が|のほうが|向いてない|が悪い))/u,
-  )?.[1];
-  if (predicateTarget && !GAME_OBJECT.test(predicateTarget))
-    return { matched: true, targetType: 'person', value: predicateTarget };
-
   return { matched: false, targetType: 'unknown' };
 }
 
 export function detectImperative(text: string): FeatureResult {
   if (isObviouslySafe(text))
     return { matched: false, score: 0, feature: 'safe-context' };
+
+  const commentAudience =
+    PEACEKEEPING_META.test(text) ||
+    META_TARGET.test(text) ||
+    /(?:文句|指示(?:コメ|コメント)?|荒らし|自治).{0,24}(?:やりなよ|しなよ|言うな|やめ)/u.test(
+      text,
+    );
+  if (commentAudience) return { matched: false, score: 0 };
+
   const tentative = TENTATIVE.test(text);
+  const target = detectTarget(text);
   if (STRONG_IMPERATIVE.some((pattern) => pattern.test(text))) {
     if (tentative)
       return {
@@ -131,22 +176,100 @@ export function detectImperative(text: string): FeatureResult {
       feature: 'imperative',
     };
   }
+  if (FRIENDLY_IMPERATIVE.test(text)) {
+    return {
+      matched: true,
+      score: URGENCY.test(text) ? 0.68 : 0.62,
+      reason: 'やわらかい命令・催促の表現',
+      feature: 'soft-imperative',
+    };
+  }
+  if (FORMAL_IMPERATIVE.test(text)) {
+    return {
+      matched: true,
+      score: 0.72,
+      reason: '明示的な命令・催促の表現',
+      feature: 'formal-imperative',
+    };
+  }
+  if (SHORT_ACTION_IMPERATIVE.test(text)) {
+    return {
+      matched: true,
+      score: 0.58,
+      reason: '短縮した行動指示の表現',
+      feature: 'short-imperative',
+    };
+  }
+  if (ACTION_NEGATIVE_QUESTION.test(text)) {
+    return {
+      matched: true,
+      score: 0.62,
+      reason: '行動を問いただす表現',
+      feature: 'action-negative-question',
+    };
+  }
+  if (
+    ACTION_SUGGESTIONS.some((pattern) => pattern.test(text)) ||
+    ACTION_ADVICE.test(text)
+  ) {
+    return {
+      matched: true,
+      score: 0.42,
+      reason: '婉曲的な行動提案',
+      feature: 'suggestion-pressure',
+    };
+  }
+  if (PRESSURE_REQUEST.test(text)) {
+    return {
+      matched: true,
+      score: 0.68,
+      reason: '頼み込みによる行動要求',
+      feature: 'action-pressure',
+    };
+  }
+  if (
+    (hasPersonOrRoleTarget(target) && ACTION_NECESSITY.test(text)) ||
+    ((hasPersonOrRoleTarget(target) || URGENCY.test(text)) &&
+      ACTION_OBLIGATION.test(text))
+  ) {
+    return {
+      matched: true,
+      score: 0.42,
+      reason: '行動の必要性を示す文脈確認候補',
+      feature: 'suggestion-pressure',
+    };
+  }
   if (SOFT_IMPERATIVE.some((pattern) => pattern.test(text))) {
     const ambiguous =
       /(?:何してんの|何してるんだ|何してるの|それでいいの|大丈夫か|リーダー|船長|^ちゃんとして)/u.test(
         text,
       );
+    const requestEnding =
+      /(?:して|やって|見て|確認して|共有して|連絡して|報告して|食べて|食って|気づいて|助けて|待って|使って|戻って|行って|乗って|置いて|渡して|入れて)くれ/u.test(
+        text,
+      );
     const lowConfidence =
       tentative ||
       ambiguous ||
-      /(?:した方|したほう|やめて|やめる|止めて)/u.test(text);
+      requestEnding ||
+      /(?:やめて|やめる|止めて)/u.test(text);
     return {
       matched: true,
-      score: lowConfidence ? 0.42 : 0.52,
+      score:
+        requestEnding && URGENCY.test(text)
+          ? 0.68
+          : lowConfidence
+            ? 0.42
+            : 0.52,
       reason: lowConfidence
         ? '行動誘導の文脈確認候補'
         : '依頼・助言による行動誘導候補',
-      feature: lowConfidence ? 'tentative-imperative' : 'suggestion-pressure',
+      feature:
+        requestEnding && URGENCY.test(text)
+          ? 'action-pressure'
+          : lowConfidence
+            ? 'suggestion-pressure'
+            : 'soft-imperative',
     };
   }
   return { matched: false, score: 0 };
@@ -158,6 +281,8 @@ export function detectBlame(
 ): FeatureResult {
   const standalone = /(?:戦犯|誰が悪い|どっちが悪い)/u.test(text);
   if (
+    BLAME_NEGATION.test(text) ||
+    VIEWER_GROUP.test(text) ||
     !BLAME_PREDICATE.test(text) ||
     (!standalone && target.targetType === 'game-object')
   )
@@ -175,11 +300,12 @@ export function detectAbilityAttack(
   text: string,
   target = detectTarget(text),
 ): FeatureResult {
-  if (!ABILITY_NEGATIVE.test(text)) return { matched: false, score: 0 };
+  if (META_TARGET.test(text) || !ABILITY_NEGATIVE.test(text))
+    return { matched: false, score: 0 };
   const explicitSubject =
     /(?:説明|プレイ|操作|判断|戦い方|動き|頭|性格|人間性)/u.test(text);
   const gameOnly =
-    /(?:武器|アイテム|装備|敵|ボス|鳥|ドリ).{0,8}(?:使えない|下手|弱い)/u.test(
+    /(?:武器|アイテム|装備|敵|ボス|鳥|ドリ|虫|恐竜).{0,8}(?:使えない|下手|弱い)/u.test(
       text,
     );
   if (gameOnly && !target.matched) return { matched: false, score: 0 };
@@ -197,8 +323,41 @@ export function detectAbilityAttack(
   };
 }
 
-export function detectComparison(text: string): FeatureResult {
-  if (!COMPARISON_PATTERNS.some((pattern) => pattern.test(text)))
+export function detectPersonalAttack(
+  text: string,
+  target = detectTarget(text),
+): FeatureResult {
+  if (
+    META_TARGET.test(text) ||
+    !PERSONAL_INSULT.test(text) ||
+    target.targetType === 'game-object'
+  )
+    return { matched: false, score: 0 };
+  if (target.targetType === 'person' || target.targetType === 'role') {
+    return {
+      matched: true,
+      score: 0.92,
+      reason: '人物を侮辱する表現',
+      feature: 'targeted-personal-insult',
+    };
+  }
+  return {
+    matched: true,
+    score: 0.42,
+    reason: '攻撃的な評価の文脈確認候補',
+    feature: 'ambiguous-personal-insult',
+  };
+}
+
+export function detectComparison(
+  text: string,
+  knownNames: string[] = [],
+): FeatureResult {
+  const target = detectTarget(text, knownNames);
+  if (
+    (target.targetType !== 'person' && target.targetType !== 'role') ||
+    !COMPARISON_PATTERNS.some((pattern) => pattern.test(text))
+  )
     return { matched: false, score: 0 };
   return {
     matched: true,
@@ -224,13 +383,34 @@ export function detectMetaConflict(text: string): MetaConflictFeatures {
 }
 
 export function detectComplaint(text: string): FeatureResult {
-  if (!COMPLAINT.test(text)) return { matched: false, score: 0 };
-  return {
-    matched: true,
-    score: 0.56,
-    reason: '配信進行・状態への不満',
-    feature: 'complaint',
-  };
+  const containsGuda = /(?:ぐだぐだ|グダグダ|gdgd)/iu.test(text);
+  if (containsGuda && POSITIVE_COMPLAINT_CONTEXT.test(text))
+    return { matched: false, score: 0 };
+  if (STREAM_STATE_COMPLAINT.test(text)) {
+    return {
+      matched: true,
+      score: 0.52,
+      reason: '配信状態への不満',
+      feature: 'complaint',
+    };
+  }
+  if (COMPLAINT_SUBJECT.test(text) && COMPLAINT_PREDICATE.test(text)) {
+    return {
+      matched: true,
+      score: 0.56,
+      reason: '配信進行・状態への不満',
+      feature: 'complaint',
+    };
+  }
+  if (containsGuda) {
+    return {
+      matched: true,
+      score: 0.42,
+      reason: '配信進行への不満の文脈確認候補',
+      feature: 'tentative-complaint',
+    };
+  }
+  return { matched: false, score: 0 };
 }
 
 export function detectSafeContext(text: string): FeatureResult {
@@ -257,7 +437,8 @@ export function extractFeatures(
     imperative: detectImperative(text),
     blame: detectBlame(text, target),
     abilityAttack: detectAbilityAttack(text, target),
-    comparison: detectComparison(text),
+    personalAttack: detectPersonalAttack(text, target),
+    comparison: detectComparison(text, knownNames),
     metaConflict: detectMetaConflict(text),
     complaint: detectComplaint(text),
     safeContext: detectSafeContext(text),

@@ -34,5 +34,65 @@
     "expectedAction": "allow",
     "requiresAi": true,
     "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "座標確認したら？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "チームに連絡したら？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "一応報告すれば？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "皮袋にも水入れとけば？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "そこ重いから拠点行けば？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "みおしゃの声大きくしてくれ",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "ウサギで練習したら？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "pRLHQpvk9TM"
+  },
+  {
+    "text": "床拡張すれば？",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "1bVCR30bwy8"
+  },
+  {
+    "text": "テリジノ使ってくれ",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "1bVCR30bwy8"
+  },
+  {
+    "text": "早く戻るべきですね",
+    "expectedAction": "allow",
+    "requiresAi": true,
+    "source": "pRLHQpvk9TM"
   }
 ]

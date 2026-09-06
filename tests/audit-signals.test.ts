@@ -22,4 +22,32 @@ describe('Zero-score Audit signals', () => {
       expect(matchAuditSignals(text)).not.toEqual([]);
     },
   );
+
+  it.each([
+    'やばば',
+    'やばやば',
+    'やっば',
+    'あばば',
+    'リーダーがんば',
+    '温めねば',
+    '有能しゅば',
+    'ほならば',
+    'しゅば',
+    'これはやば',
+    'なんたら',
+    '守護らねば',
+  ])('「%s」は婉曲提案シグナルにならない', (text) => {
+    expect(matchAuditSignals(text)).toHaveLength(0);
+  });
+
+  it.each([
+    '座標確認したら？',
+    '一応報告すれば？',
+    '皮袋にも水入れとけば？',
+    'そこ重いから拠点行けば？',
+    'ウサギで練習したら？',
+    '床拡張すれば？',
+  ])('「%s」は行動提案シグナルになる', (text) => {
+    expect(matchAuditSignals(text)).not.toEqual([]);
+  });
 });

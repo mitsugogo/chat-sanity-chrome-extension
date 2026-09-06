@@ -26,6 +26,7 @@ describe('ルール分類feature', () => {
     expect(detectTarget('○○が悪い').targetType).toBe('person');
     expect(detectTarget('リーダー仕事しろ').targetType).toBe('role');
     expect(detectTarget('武器が使えない').targetType).toBe('game-object');
+    expect(detectTarget('範囲キモい笑').targetType).toBe('game-object');
   });
 
   it('責任追及と能力攻撃は対象つきで検出する', () => {
@@ -33,6 +34,17 @@ describe('ルール分類feature', () => {
     expect(detectAbilityAttack('○○向いてない').matched).toBe(true);
     expect(detectAbilityAttack('武器が使えない').matched).toBe(false);
     expect(detectAbilityAttack('下手').matched).toBe(false);
+    expect(detectBlame('ヴィヴィのせいでもない').matched).toBe(false);
+  });
+
+  it.each([
+    ['リーダー声かけしなさいw', 0.72],
+    ['ちゃんと確認しなー', 0.58],
+    ['テリジノ使ってくれ', 0.42],
+    ['みこちご飯食べないと', 0.42],
+    ['早く戻るべきですね', 0.42],
+  ])('「%s」を文脈付きの行動誘導として候補化する', (text, score) => {
+    expect(detectImperative(text)).toMatchObject({ matched: true, score });
   });
 
   it('曖昧な指示は低確信のままルールのみでは許可する', () => {
@@ -71,6 +83,25 @@ describe('ルール分類feature', () => {
     settings.lmStudio.enabled = false;
     const result = createFilterEngine()(message('荒らしは無視しろ'), settings);
     expect(result.categories).toContain('meta_conflict');
+    expect(result.action).toBe('allow');
+  });
+
+  it.each([
+    'お前ら指示するなよ！',
+    'アドバイス指示中自重しな？',
+    'コメ欄はいったん落ち着け',
+  ])('コメント欄への平和化発言「%s」はbackseatにしない', (text) => {
+    expect(detectMetaConflict(text)).toMatchObject({
+      detected: true,
+      aggressive: false,
+      peacekeeping: true,
+      score: 0.25,
+    });
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.lmStudio.enabled = false;
+    const result = createFilterEngine()(message(text), settings);
+    expect(result.categories).not.toContain('backseat');
+    expect(result.features).toContain('peacekeeping-meta-conflict');
     expect(result.action).toBe('allow');
   });
 });
