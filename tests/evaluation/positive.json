@@ -70,5 +70,47 @@
     "expectedCategory": "meta_conflict",
     "expectedAction": "hide",
     "source": "BMoPMmtKosQ"
+  },
+  {
+    "text": "いい加減慣れろｗ",
+    "expectedCategory": "backseat",
+    "expectedAction": "blur",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "早く行きなよ",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "ちゃんと探しなよ",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "なんで近く探さないん",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "なんでまっすぐ逃げないの",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "指示厨無能だなぁ",
+    "expectedCategory": "meta_conflict",
+    "expectedAction": "blur",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "アキちゃんの配信で言ってたね",
+    "expectedCategory": "pigeon",
+    "expectedAction": "blur",
+    "source": "A-ng7wVRNJM"
   }
 ]

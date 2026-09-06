@@ -100,5 +100,83 @@
     "expectedCategory": "safe",
     "expectedAction": "allow",
     "source": "user-report-2026-09-05"
+  },
+  {
+    "text": "鉄の方がいいね",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "プテラの方がいいぞ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "レース後のほうがいいんじゃない？",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "雨のせいか？",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "エイムのせいかな",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "アーニャのせいではないよ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "敵だとめっちゃうざいよね",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "なんかキモい虫飛んでたな",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "説明はレース前に終わってるしな あとはアナウンス待ち",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "名前長すぎるｗ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "グダグダも楽しもうぜ",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "配信で言ってたな",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "みこちいけー",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "A-ng7wVRNJM"
   }
 ]

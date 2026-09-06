@@ -260,7 +260,7 @@ const RULES: CategoryRule[] = [
     patterns: [
       {
         expression:
-          /(?:他|別|[ぁ-んァ-ヶ一-龠]{2,12}(?:さん|ちゃん|くん|氏))?(?:の)?(?:視点|配信|枠)(?:では|だと|で).{0,24}(?:言ってた|見つけた|やってる|終わってる|始まった|来た)/u,
+          /(?:他枠|別枠|他の配信|別の配信|他視点|別視点|(?:[ぁ-んァ-ヶ一-龠]{2,12}(?:さん|ちゃん|くん|氏)|(?!(?:今日|昨日|今回|この|その|今|自分)の(?:視点|配信|枠))[ぁ-んァ-ヶ一-龠]{2,12})の(?:視点|配信|枠))(?:では|でも|だと|で).{0,24}(?:言ってた|見つけた|やってる|終わってる|始まった|来た)/u,
         score: 0.88,
         reason: '別視点の情報を持ち込む表現',
       },
@@ -302,7 +302,17 @@ export function matchRules(
 ): RuleMatch[] {
   if (isObviouslySafe(text)) return [];
   const matches: RuleMatch[] = [];
+  const features = extractFeatures(text, knownNames);
   for (const rule of RULES) {
+    // These categories need target and syntax information that a broad raw
+    // regular expression cannot supply. Their feature detectors below are the
+    // single source of classification evidence.
+    if (
+      rule.category === 'blame' ||
+      rule.category === 'comparison' ||
+      rule.category === 'complaint'
+    )
+      continue;
     for (const [patternIndex, pattern] of rule.patterns.entries()) {
       const occurrence = pattern.expression.exec(text);
       if (!occurrence) continue;
@@ -310,8 +320,8 @@ export function matchRules(
       // 配信者への人格攻撃ではなく meta_conflict として扱う。
       if (
         rule.category === 'personal_attack' &&
-        /^(?:指示厨|自治厨|荒らし|指示コメ|コメ欄|コメント欄)/u.test(text) &&
-        /(?:黙れ|黙ってくれ|うざい|帰れ|消えろ|無視しろ)/u.test(text)
+        (features.metaConflict.aggressive ||
+          /(?:きもい|キモい|うざい|終わってる)/u.test(text))
       )
         continue;
       const peacekeeping =
@@ -353,7 +363,6 @@ export function matchRules(
 
   // Feature detectors cover constructions that are difficult to express as a
   // single phrase rule (for example 「○○が悪い」 and 「○○向いてない」).
-  const features = extractFeatures(text, knownNames);
   const addFeature = (
     category: ConfigurableCategory,
     result: {
@@ -375,6 +384,7 @@ export function matchRules(
   };
   addFeature('blame', features.blame, 'BLAME_FEATURE_001');
   addFeature('personal_attack', features.abilityAttack, 'ATTACK_ABILITY_001');
+  addFeature('personal_attack', features.personalAttack, 'ATTACK_TARGET_001');
   addFeature('comparison', features.comparison, 'COMPARISON_FEATURE_001');
   addFeature('complaint', features.complaint, 'COMPLAINT_FEATURE_001');
 
@@ -388,7 +398,15 @@ export function matchRules(
       /(?:何してんの|何してるんだ|リーダー|船長|ちゃんとして)/u.test(text);
     const isInstructionPhrase =
       /(?:指示|一人ずつ|一緒に行動|早く|はよ|ちゃんと|少しは)/u.test(text);
-    if (hasPersonTarget || isKnownAmbiguousQuestion || isInstructionPhrase)
+    if (
+      features.imperative.feature === 'imperative' ||
+      hasPersonTarget ||
+      isKnownAmbiguousQuestion ||
+      isInstructionPhrase ||
+      features.imperative.feature === 'action-negative-question' ||
+      features.imperative.feature === 'soft-imperative' ||
+      features.imperative.feature === 'action-pressure'
+    )
       addFeature('backseat', features.imperative, 'BACKSEAT_FEATURE_001');
   }
 

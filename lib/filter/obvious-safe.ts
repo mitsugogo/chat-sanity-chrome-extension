@@ -50,6 +50,23 @@ export function isObviouslySafe(text: string): boolean {
     )
   )
     return true;
+  // A name or team followed immediately by an elongated cheer is not a
+  // directional instruction. Keep concrete paths such as「みこち右行け」out
+  // of this exception by requiring the cheer to follow the target directly.
+  if (
+    /^(?:みこち|[ぁ-んァ-ヶ一-龠A-Za-z0-9]{1,16}(?:チーム|ファミリア|組))(?:いけ|行け)(?:(?:いけ|行け)?[〜～ー]+|え{2,})[ｗw草笑!！?？]*$/u.test(
+      value,
+    )
+  )
+    return true;
+  if (/^[ァ-ヶー]{2,16}(?:いけ|行け)[ｗw草笑!！?？〜～ー]*$/u.test(value))
+    return true;
+  if (
+    /^(?:[ぁ-んァ-ヶ一-龠A-Za-z0-9]{1,16}(?:チーム|ファミリア|組))(?:がんばれ|頑張れ)[ｗw草笑!！?？〜～ー]*$/u.test(
+      value,
+    )
+  )
+    return true;
   if (/^クソ(?:鳥|ドリ)か[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
   if (/^動き(?:も|が)いい[ｗw草笑!！?？〜～ー]*$/u.test(value)) return true;
   // A bare 「何してんの」 is an ambiguous question and remains eligible for

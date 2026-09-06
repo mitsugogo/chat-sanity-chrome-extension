@@ -75,6 +75,13 @@ describe('日本語チャットルール', () => {
     },
   );
 
+  it.each(['みこち右行け', 'みこち拠点行け', 'みこち先に行け'])(
+    '具体的な行き先を伴う「%s」は応援扱いにしない',
+    (text) => {
+      expect(categoriesFor(text)).toContain('backseat');
+    },
+  );
+
   it('曖昧な比較・助言・展開示唆はAI判定の対象にできるスコアにする', () => {
     const scores = [
       ...matchesFor('太郎さんより花子さんの方が上手い'),
@@ -82,7 +89,7 @@ describe('日本語チャットルール', () => {
       ...matchesFor('このあとボスが出てくる'),
     ].map((match) => match.score);
 
-    expect(scores).toEqual(expect.arrayContaining([0.68, 0.42, 0.72]));
+    expect(scores).toEqual(expect.arrayContaining([0.8, 0.42, 0.72]));
     expect(scores.every((score) => score >= 0.35 && score <= 0.8)).toBe(true);
   });
 
