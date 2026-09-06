@@ -112,7 +112,7 @@ const RULES: CategoryRule[] = [
       },
       {
         expression:
-          /(?:しろ|やれ|行け|いけ|戻れ|急げ|見ろ|聞け|待て|使え|選べ|読め|仕事しろ|指示しろ)よ?[!！。?？wｗ草笑〜～ー]*$/u,
+          /(?:しろ|やれ|行け|いけ|戻れ|急げ|見ろ|聞け|待て|使え|選べ|読め|乗れ|仕事しろ|指示しろ)(?:よ|な|って)?[!！。?？wｗ草笑〜～ー]*$/u,
         score: 0.9,
         reason: '命令口調',
       },
@@ -324,12 +324,16 @@ export function matchRules(
           /(?:きもい|キモい|うざい|終わってる)/u.test(text))
       )
         continue;
-      const peacekeeping =
-        /(?:荒らし|指示(?:厨|コメ)|自治厨).{0,12}(?:無視|スルー|放置|やめ|控え)/u.test(
-          text,
-        );
+      const peacekeeping = features.metaConflict.peacekeeping;
       if (rule.category === 'backseat' && peacekeeping) continue;
       const tail = text.slice(occurrence.index + occurrence[0].length);
+      if (
+        rule.category === 'backseat' &&
+        /^(?:の圧|って言われ|と言われ|ってこと|という意味|と言ってた|と[ｗw](?:[!！。?？草笑〜～ー]*)?$)/u.test(
+          tail,
+        )
+      )
+        continue;
       // Quoting an insult to discourage it should not become an insult itself.
       if (
         /^[」』”"']*(?:(?:とか|なんて|って|と)(?:は)?|(?:は|を)?)?(?:言わない|言うな|言わん|言っちゃだめ|言ってはいけない|言うのやめ)/u.test(
@@ -405,7 +409,9 @@ export function matchRules(
       isInstructionPhrase ||
       features.imperative.feature === 'action-negative-question' ||
       features.imperative.feature === 'soft-imperative' ||
-      features.imperative.feature === 'action-pressure'
+      features.imperative.feature === 'action-pressure' ||
+      features.imperative.feature === 'formal-imperative' ||
+      features.imperative.feature === 'short-imperative'
     )
       addFeature('backseat', features.imperative, 'BACKSEAT_FEATURE_001');
   }

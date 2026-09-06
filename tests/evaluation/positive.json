@@ -112,5 +112,29 @@
     "expectedCategory": "pigeon",
     "expectedAction": "blur",
     "source": "A-ng7wVRNJM"
+  },
+  {
+    "text": "参加証もらいに行きなよ",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "pRLHQpvk9TM"
+  },
+  {
+    "text": "リーダー声かけしなさいw",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "grsIwh-FYlk"
+  },
+  {
+    "text": "ちゃんと確認しなー",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "1bVCR30bwy8"
+  },
+  {
+    "text": "なんで役割分担しないの？",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "pRLHQpvk9TM"
   }
 ]

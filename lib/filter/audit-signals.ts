@@ -40,6 +40,18 @@ const AUDIT_SIGNALS: ReadonlyArray<{
     boost: 0.18,
     reason: '行動要求の可能性',
   },
+  {
+    expression:
+      /(?:食べ|行|戻|回復|迂回|逃げ|確認|共有|連絡|使|乗|準備|回収|探)ないと/u,
+    boost: 0.08,
+    reason: '行動の必要性を示す可能性',
+  },
+  {
+    expression:
+      /(?:食べる|行く|戻る|回復する|迂回する|逃げる|確認する|共有する|連絡する|使う|乗る|準備する|回収する|探す|やる|帰って準備する)べき/u,
+    boost: 0.08,
+    reason: '行動の方針を示す可能性',
+  },
 ];
 
 /** Signals only increase the chance of an AI audit; they never affect score. */

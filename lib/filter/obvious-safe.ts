@@ -45,7 +45,7 @@ export function isObviouslySafe(text: string): boolean {
   // A clearly named positive goal followed by 「いけ」 is cheering, not an
   // instruction about the streamer's next action.
   if (
-    /^(?:優勝|勝利|決勝|ゴール|てっぺん|世界一)(?:まで|へ)?(?:いけ|行け)[ｗw草笑!！?？〜～ー]*$/u.test(
+    /^(?:(?:優勝|勝利|決勝|ゴール|てっぺん|世界一|(?:[0-9０-９]+|[一二三四五六七八九十]+)位)(?:まで|へ)?|(?:強気で|勇気持って))(?:いけ|行け)[ｗw草笑!！?？〜～ー]*$/u.test(
       value,
     )
   )
@@ -54,7 +54,10 @@ export function isObviouslySafe(text: string): boolean {
   // directional instruction. Keep concrete paths such as「みこち右行け」out
   // of this exception by requiring the cheer to follow the target directly.
   if (
-    /^(?:みこち|[ぁ-んァ-ヶ一-龠A-Za-z0-9]{1,16}(?:チーム|ファミリア|組))(?:いけ|行け)(?:(?:いけ|行け)?[〜～ー]+|え{2,})[ｗw草笑!！?？]*$/u.test(
+    !/(?:右|左|前|後ろ|拠点|会場|洞窟|海|山|そこ|あっち|こっち|プール|先に|[ぁ-んァ-ヶ一-龠A-Za-z0-9]+(?:に|へ|まで))/u.test(
+      value,
+    ) &&
+    /^(?:みこち|みんな|皆|全員|[ぁ-んァ-ヶ一-龠A-Za-z0-9]{1,16}(?:チーム|ファミリア|組)|[ぁ-んァ-ヶ一-龠A-Za-z0-9]{2,16})(?:いけ|行け)(?:(?:いけ|行け)?[〜～ー]+|え{2,})[ｗw草笑!！?？]*$/u.test(
       value,
     )
   )
