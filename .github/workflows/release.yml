@@ -99,6 +99,7 @@ jobs:
         with:
           name: chat-sanity-${{ github.ref_name }}
           path: ${{ steps.zip.outputs.path }}
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
 

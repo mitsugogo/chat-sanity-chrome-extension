@@ -77,5 +77,6 @@ jobs:
         with:
           name: chat-sanity-chrome
           path: .output/*.zip
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
