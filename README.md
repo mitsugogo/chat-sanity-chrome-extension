@@ -2,6 +2,21 @@
 
 YouTube Live Chat向けのManifest V3 Chrome拡張です。日本語チャットをルールベースで分類し、必要な場合だけChrome内蔵AI（Gemini Nano / Prompt API）またはLM Studioへ、曖昧なコメントとルール未一致から抽選された少数のコメントを送ります。処理は端末内で完結し、クラウドAIは使用しません。
 
+## Download
+
+最新バージョンは
+[GitHub Releases](https://github.com/mitsugogo/chat-sanity-chrome-extension/releases/latest)
+からダウンロードできます。
+
+### Install
+
+1. Releases から最新の `ChatSanity-*-chrome.zip` をダウンロード
+2. ZIPを任意のフォルダへ展開
+3. Chromeで `chrome://extensions/` を開く
+4. 「デベロッパー モード」を有効化
+5. 「パッケージ化されていない拡張機能を読み込む」を選択
+6. 展開したフォルダを指定
+
 ## 開発
 
 ```powershell
