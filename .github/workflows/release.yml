@@ -1,15 +1,15 @@
 name: Release Extension
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types:
+      - published
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -39,19 +41,27 @@ jobs:
       - name: Prepare WXT types
         run: pnpm wxt prepare
 
-      - name: Verify tag matches package version
+      - name: Sync package version with release tag
         shell: bash
         run: |
           set -euo pipefail
 
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG_NAME#v}"
 
-          echo "package.json version: ${PACKAGE_VERSION}"
+          echo "Git tag:               ${TAG_NAME}"
           echo "Git tag version:       ${TAG_VERSION}"
 
+          if ! [[ "${TAG_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag must use the vMAJOR.MINOR.PATCH format. Received: ${TAG_NAME}"
+            exit 1
+          fi
+
+          pnpm version "${TAG_VERSION}" --no-git-tag-version --allow-same-version
+
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           if [ "${PACKAGE_VERSION}" != "${TAG_VERSION}" ]; then
-            echo "::error::Git tag v${TAG_VERSION} does not match package.json version ${PACKAGE_VERSION}"
+            echo "::error::Failed to set package.json version to ${TAG_VERSION}"
             exit 1
           fi
 
@@ -97,21 +107,19 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chat-sanity-${{ github.ref_name }}
+          name: chat-sanity-${{ github.event.release.tag_name }}
           path: ${{ steps.zip.outputs.path }}
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
 
-      - name: Create GitHub Release
+      - name: Attach ZIP to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
 
-          gh release create "${GITHUB_REF_NAME}" \
+          gh release upload "${{ github.event.release.tag_name }}" \
             "${{ steps.zip.outputs.path }}" \
-            --verify-tag \
-            --title "ChatSanity ${GITHUB_REF_NAME}" \
-            --generate-notes
+            --clobber
