@@ -15,13 +15,17 @@ const mocks = vi.hoisted(() => ({
   subscribeSettings:
     vi.fn<(listener: (settings: SettingsV1) => void) => () => void>(),
   sendMessage: vi.fn<(message: RuntimeMessage) => Promise<RuntimeResponse>>(),
+  connect: vi.fn(),
+  feedbackMessageListeners: [] as Array<(message: unknown) => void>,
 }));
 vi.mock('../lib/storage', () => ({
   loadSettings: mocks.loadSettings,
   subscribeSettings: mocks.subscribeSettings,
 }));
 vi.mock('wxt/browser', () => ({
-  browser: { runtime: { sendMessage: mocks.sendMessage } },
+  browser: {
+    runtime: { sendMessage: mocks.sendMessage, connect: mocks.connect },
+  },
 }));
 
 type Context = { onInvalidated: (callback: () => void) => void };
@@ -44,6 +48,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   requests.length = 0;
+  mocks.feedbackMessageListeners.length = 0;
   settings = structuredClone(DEFAULT_SETTINGS);
   settings.lmStudio.enabled = true;
   settings.lmStudio.model = 'local-test';
@@ -57,6 +62,14 @@ beforeEach(() => {
       );
     return Promise.resolve({ ok: true });
   });
+  mocks.connect.mockImplementation(() => ({
+    onMessage: {
+      addListener: (listener: (message: unknown) => void) =>
+        mocks.feedbackMessageListeners.push(listener),
+    },
+    onDisconnect: { addListener: vi.fn() },
+    disconnect: vi.fn(),
+  }));
   document.body.innerHTML = '<div id="items"></div>';
 });
 afterEach(() => {
@@ -241,6 +254,70 @@ describe('content integration', () => {
         }),
       }),
     );
+  });
+
+  it('デバッグ中の表示コメントを見逃しとしてフィードバック保存できる', async () => {
+    settings.debugMode = true;
+    settings.lmStudio.enabled = false;
+    const item = append('feedback-item', 'こんにちは');
+    await start();
+
+    const report = Array.from(item.querySelectorAll('button')).find(
+      (button) => button.textContent === 'NG',
+    );
+    if (!report) throw new Error('missed feedback button missing');
+    expect(report).toHaveAttribute('aria-label', '問題コメントとして報告');
+    report.click();
+    const blame = item.querySelector<HTMLInputElement>('input[value="blame"]');
+    if (!blame) throw new Error('blame category input missing');
+    blame.click();
+    const submit = Array.from(item.querySelectorAll('button')).find(
+      (button) => button.textContent === 'このカテゴリで記録',
+    );
+    if (!submit) throw new Error('feedback submit button missing');
+    submit.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'feedback:add',
+        entry: expect.objectContaining({
+          text: 'こんにちは',
+          normalizedText: 'こんにちは',
+          judgement: 'missed',
+          correctCategory: 'blame',
+        }),
+      }),
+    );
+  });
+
+  it('フィードバック記憶の更新と消去を現在のチャットへ反映する', async () => {
+    settings.lmStudio.enabled = false;
+    await start();
+    const receive = mocks.feedbackMessageListeners[0];
+    if (!receive) throw new Error('feedback memory listener missing');
+
+    receive({
+      kind: 'update',
+      memory: {
+        normalizedText: '死ね',
+        categoryCounts: { safe: 1 },
+        sampleCount: 1,
+        updatedAt: 1,
+      },
+    });
+    const next = structuredClone(settings);
+    next.debugMode = true;
+    changeSettings(next);
+    const corrected = append('feedback-corrected', '死ね');
+    await Promise.resolve();
+    expect(corrected).toHaveAttribute('data-chatsanity-action', 'allow');
+
+    receive({ kind: 'clear' });
+    const restored = append('feedback-cleared', '死ね');
+    await Promise.resolve();
+    expect(restored).toHaveClass('chatsanity-hidden');
   });
 
   it('500msでルールへ戻し遅れて成功したAI結果を反映する', async () => {

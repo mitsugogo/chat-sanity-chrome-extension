@@ -28,6 +28,13 @@ describe('日本語チャットルール', () => {
     ['ネタバレだけど犯人は彼です', 'spoiler'],
     ['しねよ', 'personal_attack'],
     ['お前しね', 'personal_attack'],
+    ['伝令', 'backseat'],
+    ['スクイズかな', 'backseat'],
+    ['守備伝令使ってね！！！！！', 'backseat'],
+    ['住友と岡本交代して！！！', 'backseat'],
+    ['内角でいこう', 'backseat'],
+    ['代走は？', 'backseat'],
+    ['思考使って転がせ', 'backseat'],
   ] as const)('「%s」を%sとして検出する', (text, category) => {
     expect(categoriesFor(text)).toContain(category);
   });
@@ -72,6 +79,16 @@ describe('日本語チャットルール', () => {
     'だから急げって言われてたやろ',
     '海へ行けとw',
     '一体どうしろとw',
+    'ナイスバント',
+    'スクイズ成功',
+    'しれっと盗塁してる',
+    '守備交代だった',
+    '魔物きた！',
+    '伝令ありがとう',
+    '内角うまい',
+    'バントしやすくなる',
+    '伝令で正解ですね 育成論として',
+    '主人公交代と配信画面に居るお姉ちゃん交代？',
   ])('文脈のない一般的な表現「%s」を断定的に検出しない', (text) => {
     expect(categoriesFor(text)).toEqual([]);
   });
@@ -114,5 +131,12 @@ describe('日本語チャットルール', () => {
     expect(score.categoryScores.blame).toBeGreaterThanOrEqual(0.9);
     expect(score.ruleIds).toContain('BLAME_FEATURE_001');
     expect(score.reasons).toContain('責任を特定対象へ押し付ける表現');
+  });
+
+  it('パワプロ固有の短い采配指定を独立したルールIDで集約する', () => {
+    const score = scoreRules(normalizeText('伝令'));
+    expect(score.categoryScores.backseat).toBe(0.58);
+    expect(score.ruleIds).toContain('BACKSEAT_POWERPRO_001');
+    expect(score.reasons).toContain('パワプロの采配候補を指定する短い表現');
   });
 });

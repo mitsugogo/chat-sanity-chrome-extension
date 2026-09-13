@@ -8,6 +8,7 @@ YouTube chat DOM
   -> Normalizer
   -> Safe Fast Path (owner/mod/self/whitelist/stamps/allowed words)
   -> Hidden users
+  -> Human Feedback Exact Memory (only reliable normalized-text consensus)
   -> Feature Extraction / Rule Scoring
   -> Context Modifier / Spam Detector / Session author boost
   -> ambiguous or sampled unmatched: Service Worker -> LocalAiResolver
@@ -32,6 +33,7 @@ Content ScriptはYouTubeのチャットフレームで新着ノードを監視�
 | 公開契約       | `lib/types.ts`                               | 設定、判定結果、診断、メッセージの型                        |
 | ルール判定     | `lib/filter/`                                | 正規化、feature抽出、カテゴリスコア、スパム、アクション決定 |
 | AI通信         | `lib/batch-queue.ts`、`lib/local-ai/`        | バッチ、Provider選択、session、timeout、構造化結果検証      |
+| フィードバック | `lib/feedback/`                              | IndexedDB保存、同文exact memory、ルール別統計、JSONL出力    |
 | YouTube統合    | `lib/youtube/`                               | DOM抽出と非破壊Renderer                                     |
 | Flow Chat連携  | `lib/integrations/flow-chat/`                | `ylcfr-*` DOMプロトコル、締切、メトリクス                   |
 | 設定保存       | `lib/settings.ts`、`lib/storage.ts`          | 既定値、検証、`storage.sync`永続化                          |
@@ -39,7 +41,9 @@ Content ScriptはYouTubeのチャットフレームで新着ノードを監視�
 
 ## 状態と保存先
 
-`chrome.storage.sync`へ保存するのは`SettingsV1`だけです。プリセット、閾値、語句、非表示ユーザーとホワイトリストのチャンネルID・表示名、Local AI mode、Chrome内蔵AI・LM Studio設定、Flow Chat連携のON/OFFと除外基準を含み、`schemaVersion: 1`で将来の移行境界を示します。コメント本文は保存しません。
+`chrome.storage.sync`へ保存するのは`SettingsV1`だけです。プリセット、閾値、語句、非表示ユーザーとホワイトリストのチャンネルID・表示名、Local AI mode、Chrome内蔵AI・LM Studio設定、Flow Chat連携のON/OFFと除外基準を含み、`schemaVersion: 1`で将来の移行境界を示します。通常のコメント本文・診断履歴・セッション集計は保存しません。
+
+ユーザーが「正しい / 間違い」または「問題コメント」を明示的に送信した場合だけ、`chat-sanity-feedback` IndexedDBへフィードバックを保存します。`feedback`ストアにはその本文、正規化本文、予測・訂正カテゴリ、スコア、アクション、rule ID、feature、判定元、数値の文脈補正と時刻を保存します。`exactMemory`ストアは正規化本文ごとのカテゴリ票を、`ruleStats`ストアはrule IDごとの正解・誤判定・見逃し集計を持ちます。投稿者名・チャンネルID・周辺コメント履歴は保存しません。IndexedDBデータは同期されず、自動外部送信もしません。JSONL出力と全件消去はOptions画面の明示操作からだけ行います。
 
 判定履歴、処理済みDOM、同文キャッシュはチャットフレームのメモリ内にだけ保持し、タブ終了時に破棄します。デバッグ履歴は直近200件、同文キャッシュは最大500件で、キャッシュのTTLは10分です。
 
@@ -63,7 +67,13 @@ Flow Chat側の連携クラスは`lib/integrations/flow-chat/constants.ts`へ隔
 
 200ms単位、最大20件のバッチを1つずつ実行します。Chrome内蔵AIはResolver内で最大8件へ分割し、LM Studioは最大20件を維持します。待機上限は100件です。表示待機500msと推論待機`requestTimeoutMs`（既定10秒、1〜60秒）は分離し、時間のかかるローカルモデルでも先にルール表示した後から更新できます。HTTP応答本文の受信・解析までタイムアウトの対象です。Chrome Prompt APIは`responseConstraint`を使い、LM StudioのJSON Schema、JSON Object、テキスト互換形式とともにruntime validationを共通化しています。Chrome側はsystem promptだけのbase sessionをService Worker内で遅延作成し、batchごとにcloneして必ずdestroyします。Service Worker再起動時はsessionを再生成します。`downloadable`と`downloading`では通常分類から`create()`せず、Options画面のユーザー操作だけが初回モデル準備を開始します。プロンプトに日本語の問題例・安全例を含め、コメント内の命令を分類データとして扱うよう指示します。明らかなリアクションはAIへ送らず、広いprefilterも候補抽出にだけ使います。
 
-`sessionLearning`が有効な場合、曖昧域に対するAIの強い問題判定を現在のチャットフレーム内で再利用します。異なる3本文の共通文節で、文節単独でも同じカテゴリの高スコアをAIが返したものだけを一時ルールに昇格し、判定根拠として表示します。Zero-score Auditの結果は同一正規化本文のTTLキャッシュにだけ保存し、一時ルールの学習材料にはしません。設定変更時はキャッシュ・学習・監査状態を消去して古いキューを破棄し、古い非同期結果を適用しません。監査通信の失敗後は30秒停止し、短時間スパム履歴は時刻に応じて期限切れにします。学習データは外部送信も永続保存もしません。
+`sessionLearning`が有効な場合、曖昧域に対するAIの強い問題判定を現在のチャットフレーム内で再利用します。異なる3本文の共通文節で、文節単独でも同じカテゴリの高スコアをAIが返したものだけを一時ルールに昇格し、判定根拠として表示します。Zero-score Auditの結果は同一正規化本文のTTLキャッシュにだけ保存し、一時ルールの学習材料にはしません。設定変更時はキャッシュ・学習・監査状態を消去して古いキューを破棄し、古い非同期結果を適用しません。監査通信の失敗後は30秒停止し、短時間スパム履歴は時刻に応じて期限切れにします。セッション学習データは外部送信も永続保存もしません。
+
+## Human Feedback
+
+Human Feedbackは、設定・ルール・AIセッション学習とは独立した層です。無効化、配信者／モデレーター／自分、ホワイトリスト、許可語句、ブロック語句、非表示ユーザーの既存優先順位を保った後、通常のルールより先にexact memoryを照合します。同じ正規化本文について一意の最多カテゴリがあり、支持率が60%以上の場合だけ利用します。`safe`は表示を維持し、問題カテゴリはサンプル数に応じた保守的なスコアで表示アクションを選びます。競合票、`unknown`、無効なカテゴリは通常のルール判定へ戻します。
+
+exact memoryを使った結果には`HUMAN_FEEDBACK_EXACT_001`と`human-feedback-exact`を付け、診断で由来を識別できます。人間の訂正をもとに一般的なphraseルールを作ること、既存`rules.ts`を自動変更すること、保存済みのフィードバックをLocal AIへfew-shotとして自動送信することはv1では行いません。
 
 カテゴリごとの表示方法は設定したモードを優先し、`threshold`だけ通常のスコア閾値を使います。スパムの投稿頻度による証拠は内容カテゴリの表示設定で打ち消しません。デバッグモードの履歴は対応理由と判定元を確認するためだけに使い、外部送信や永続保存を行いません。
 

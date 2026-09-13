@@ -1,3 +1,11 @@
+import type {
+  ExactFeedbackResult,
+  FeedbackEntry,
+  FeedbackExactMemory,
+  FeedbackSummary,
+  RuleFeedbackStats,
+} from './feedback/types';
+
 export type FilterCategory =
   | 'safe'
   | 'backseat'
@@ -32,6 +40,8 @@ export type FilterMode = 'threshold' | 'allow' | 'dim' | 'blur' | 'hide';
 export type FlowChatExclusionLevel = 'blur' | 'hide' | 'custom';
 export type FlowChatDecisionSource =
   'rule' | 'context' | 'cache' | 'llm-fast' | 'fail-open';
+export type DiagnosticSource =
+  'rules' | 'local-ai' | 'human-feedback' | 'fallback';
 
 export interface FlowChatSettings {
   enabled: boolean;
@@ -94,6 +104,8 @@ export interface FilterResult {
   ruleIds?: string[];
   features?: string[];
   contextAdjustment?: number;
+  /** Origin of the final non-fallback decision, kept for diagnostics. */
+  source?: DiagnosticSource;
 }
 
 /** Public shape for consumers that need the rule score without display state. */
@@ -169,14 +181,20 @@ export interface DiagnosticEntry {
   score: number;
   action: FilterAction;
   reasons: string[];
+  normalizedText?: string;
   ruleIds?: string[];
   features?: string[];
   contextAdjustment?: number;
+  sameAuthorRecent?: string[];
+  recentRiskyMessages?: string[];
+  conflictLevel?: number;
   flow?: FlowChatDebugInfo;
-  source: 'rules' | 'local-ai' | 'fallback';
+  source: DiagnosticSource;
   aiProvider?: LocalAiProviderId;
   aiReason?: AiRequestReason;
+  aiConfidence?: number;
   aiLatencyMs?: number;
+  classifierPromptVersion?: number;
   timestamp: number;
 }
 
@@ -218,6 +236,13 @@ export type RuntimeMessage =
   | { type: 'debug:get' }
   | { type: 'debug:clear' }
   | { type: 'debug:clear-frame' }
+  | { type: 'feedback:add'; entry: FeedbackEntry }
+  | { type: 'feedback:list' }
+  | { type: 'feedback:stats' }
+  | { type: 'feedback:exact-list' }
+  | { type: 'feedback:lookup-exact'; normalizedText: string }
+  | { type: 'feedback:clear' }
+  | { type: 'feedback:export' }
   | { type: 'flow:metrics-update'; metrics: FlowChatMetricsSnapshot }
   | { type: 'flow:metrics-clear-frame' }
   | { type: 'lm:list-models'; endpoint: string }
@@ -247,4 +272,18 @@ export type RuntimeResponse =
       entries: DiagnosticEntry[];
       flowMetrics?: FlowChatMetricsSnapshot;
     }
+  | { ok: true; feedbackEntries: FeedbackEntry[] }
+  | {
+      ok: true;
+      feedbackStats: RuleFeedbackStats[];
+      feedbackSummary: FeedbackSummary;
+    }
+  | { ok: true; exactMemories: FeedbackExactMemory[] }
+  | { ok: true; exactFeedback: ExactFeedbackResult | null }
+  | {
+      ok: true;
+      exactMemory: FeedbackExactMemory;
+      feedbackStats: RuleFeedbackStats[];
+    }
+  | { ok: true; jsonl: string }
   | { ok: false; error: string };

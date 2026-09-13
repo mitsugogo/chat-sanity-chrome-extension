@@ -391,6 +391,7 @@ export function matchRules(
   addFeature('personal_attack', features.personalAttack, 'ATTACK_TARGET_001');
   addFeature('comparison', features.comparison, 'COMPARISON_FEATURE_001');
   addFeature('complaint', features.complaint, 'COMPLAINT_FEATURE_001');
+  addFeature('backseat', features.powerProInstruction, 'BACKSEAT_POWERPRO_001');
 
   if (features.imperative.matched) {
     const hasPersonTarget =

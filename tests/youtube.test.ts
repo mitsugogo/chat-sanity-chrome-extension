@@ -228,4 +228,43 @@ describe('YouTube renderer', () => {
     ).not.toBeInTheDocument();
     expect(item.querySelector('#message')).not.toHaveAttribute('aria-label');
   });
+
+  it('実チャットはスコアと小さなNGボタンだけを表示する', () => {
+    const item = findChatItems(createChatItem())[0]!;
+    renderResult(
+      item,
+      {
+        score: 0.72,
+        categories: ['backseat'],
+        reasons: ['行動を指示する表現'],
+        action: 'allow',
+        needsAi: false,
+        ruleDisposition: 'matched',
+      },
+      {
+        id: 'abc',
+        text: 'そっちに行った方がいい',
+        category: 'backseat',
+        score: 0.72,
+        action: 'allow',
+        reasons: ['行動を指示する表現'],
+        source: 'rules',
+        timestamp: 1,
+      },
+      true,
+      false,
+      { onSubmit: async () => undefined },
+    );
+
+    const labels = Array.from(item.querySelectorAll('button')).map(
+      (button) => button.textContent,
+    );
+    expect(labels).toEqual(['NG']);
+    expect(
+      item.querySelector('.chatsanity-feedback-meta'),
+    ).not.toBeInTheDocument();
+    expect(
+      item.querySelector('.chatsanity-feedback-actions'),
+    ).not.toBeInTheDocument();
+  });
 });

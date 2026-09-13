@@ -122,7 +122,8 @@ body {
 .debug-history-panel,
 .flow-chat-panel,
 .category-panel,
-.user-list-panel {
+.user-list-panel,
+.feedback-panel {
   padding: 18px;
 }
 
@@ -530,6 +531,68 @@ select,
   overflow-wrap: anywhere;
 }
 
+.diagnostic-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--soft-line);
+}
+
+.diagnostic-feedback .secondary-button {
+  min-height: 31px;
+  padding: 5px 10px;
+}
+
+.feedback-category-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 10px;
+  width: 100%;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+}
+
+.feedback-category-picker legend {
+  width: 100%;
+  padding: 0;
+  color: #526781;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.feedback-category-picker label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.feedback-picker-actions {
+  display: flex;
+  gap: 7px;
+  width: 100%;
+}
+
+.feedback-success,
+.feedback-error {
+  width: 100%;
+  margin: 0;
+  font-size: 11px;
+}
+
+.feedback-success {
+  color: #287443;
+}
+
+.feedback-error {
+  color: #9a3737;
+}
+
 .save-bar {
   display: flex;
   align-items: center;
@@ -542,8 +605,21 @@ select,
   scroll-margin-top: 20px;
 }
 
+.feedback-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  scroll-margin-top: 20px;
+}
+
 .debug-history-actions {
   display: flex;
+  gap: 8px;
+}
+
+.feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -559,9 +635,153 @@ select,
   cursor: pointer;
 }
 
+.feedback-actions button {
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid #8996a6;
+  border-radius: 6px;
+  background: white;
+  color: #37475a;
+  font-size: 11px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
 .debug-history-actions button:disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+.feedback-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.feedback-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: #526781;
+  font-size: 11px;
+}
+
+.feedback-summary span:first-child {
+  color: #37475a;
+  font-weight: 700;
+}
+
+.feedback-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.feedback-filters label {
+  display: grid;
+  gap: 4px;
+  color: #526781;
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.feedback-filters select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.feedback-list {
+  display: grid;
+  max-height: 520px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+  list-style: none;
+}
+
+.feedback-list li {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--soft-line);
+  content-visibility: auto;
+  contain-intrinsic-size: 108px;
+}
+
+.feedback-list li:last-child {
+  border-bottom: 0;
+}
+
+.feedback-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.feedback-list-meta strong {
+  color: #8c3a3a;
+  font-size: 11px;
+}
+
+.feedback-list-text {
+  margin: 7px 0 3px;
+  color: #213247;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.feedback-list-result {
+  margin: 0;
+  color: #5c6c7e;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.rule-feedback-stats {
+  display: grid;
+  gap: 9px;
+}
+
+.rule-feedback-stats h3 {
+  margin: 0;
+  color: #37475a;
+  font-size: 13px;
+}
+
+.rule-feedback-stats ul {
+  display: grid;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--soft-line);
+  border-radius: 7px;
+  list-style: none;
+}
+
+.rule-feedback-stats li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--soft-line);
+  color: #5c6c7e;
+  font-size: 10px;
+}
+
+.rule-feedback-stats li:last-child {
+  border-bottom: 0;
+}
+
+.rule-feedback-stats strong {
+  width: 100%;
+  color: #37475a;
+  font-size: 11px;
 }
 
 .debug-history-list {
@@ -729,5 +949,11 @@ select,
   }
   .debug-history-panel .section-heading {
     display: grid;
+  }
+  .feedback-panel .section-heading {
+    display: grid;
+  }
+  .feedback-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -84,6 +84,44 @@ describe('filter engine', () => {
     });
   });
 
+  it('同一正規化本文の人間によるsafe訂正をルールより優先する', () => {
+    const result = createFilterEngine()(
+      createMessage('今すぐ回復しろ'),
+      settings(),
+      null,
+      undefined,
+      { category: 'safe', confidence: 1, sampleCount: 3 },
+    );
+
+    expect(result).toMatchObject({
+      categories: ['safe'],
+      score: 0,
+      action: 'allow',
+      needsAi: false,
+      source: 'human-feedback',
+      ruleIds: ['HUMAN_FEEDBACK_EXACT_001'],
+      features: ['human-feedback-exact'],
+    });
+  });
+
+  it('ブロック語句は人間によるexact safe訂正より優先する', () => {
+    const value = settings();
+    value.blockedWords = ['独自NG'];
+    const result = createFilterEngine()(
+      createMessage('独自NG'),
+      value,
+      null,
+      undefined,
+      { category: 'safe', confidence: 1, sampleCount: 3 },
+    );
+
+    expect(result).toMatchObject({
+      score: 1,
+      action: 'hide',
+      source: 'rules',
+    });
+  });
+
   it('同一セッションの繰り返し加点で非表示側へ倒す', () => {
     const result = createFilterEngine()(
       createMessage('回復した方がいい'),

@@ -26,6 +26,7 @@ export interface MetaConflictFeatures {
 export interface ExtractedFeatures {
   target: TargetMatch;
   imperative: FeatureResult;
+  powerProInstruction: FeatureResult;
   blame: FeatureResult;
   abilityAttack: FeatureResult;
   personalAttack: FeatureResult;
@@ -113,6 +114,18 @@ const ACTION_NECESSITY =
   /(?:食べ|行|戻|回復|迂回|逃げ|確認|共有|連絡|使|乗|準備|回収|探)ないと/u;
 const ACTION_OBLIGATION =
   /(?:食べる|行く|戻る|回復する|迂回する|逃げる|確認する|共有する|連絡する|使う|乗る|準備する|回収する|探す|やる|帰って準備する)べき/u;
+const POWERPRO_TERSE_TACTIC =
+  /^(?:(?:ここ|これ|次|今)(?:は|で)?|(?:2|ツー)スト(?:ライク)?(?:で)?)?(?:守備伝令|スタミナ伝令|調子伝令|攻撃伝令|伝令|スクイズ|送りバント|セーフティバント|バント|代打|代走|守備交代|投手交代|ピッチャー交代|継投|敬遠|盗塁|転がせ|ミート|強振|流し打ち|強振流し|流し|引っ張り|内角|外角|低め|高め)(?:[0-9]+)?(?:(?:も|は)?(?:あり|アリ)|かな[ぁあ]?|か[?？]?|で|だ|や|やな|やね|いこう|いこ|しよう|する[?？]|は[?？]|[!！?？〜～ー]*)$/u;
+const POWERPRO_DIRECT_TACTIC =
+  /(?:守備伝令|スタミナ伝令|調子伝令|攻撃伝令|伝令|スクイズ|送りバント|セーフティバント|バント|代打|代走|守備交代|投手交代|ピッチャー交代|継投|敬遠|盗塁|転がせ|ミート|強振|流し打ち|強振流し|流し|引っ張り|内角|外角|低め|高め|魔物|思考).{0,16}(?:使って|つかって|使おう|つかおう|(?<!と)して|しよう|いこう|いこ|選んで|見て|確認して|回して|切って)(?:ね|よ)?[!！?？〜～ー]*$/u;
+const POWERPRO_TACTIC_CHAIN =
+  /(?:魔物|思考|伝令).{0,12}(?:使って|つかって).{0,12}(?:転がせ|スクイズ|バント|代打|代走|ミート|強振|流し|引っ張り|内角|外角|低め|高め)(?:[0-9]+)?[!！?？〜～ー]*$/u;
+const POWERPRO_TACTIC_SUGGESTION =
+  /(?:守備伝令|スタミナ伝令|調子伝令|攻撃伝令|伝令|スクイズ|送りバント|セーフティバント|バント|代打|代走|守備交代|投手交代|ピッチャー交代|継投|敬遠|盗塁|転がせ|ミート|強振|流し打ち|強振流し|流し|引っ張り|内角|外角|低め|高め)(?:[0-9]+)?(?:も|は|で|が|を)?(?:あり|アリ|かな[ぁあ]?|かも|がいい|でいい|してもいい|使ってもいい|は[?？]|する[?？]|いく[?？])(?:[!！?？〜～ー]*)$/u;
+const POWERPRO_LINEUP_CHANGE = [
+  /[^\s、。!！?？]{1,16}(?<!交代)と[^\s、。!！?？]{1,16}(?:を)?(?:交代|入れ替え)(?:して|しよう|で)?[!！?？〜～ー]*$/u,
+  /(?:打順|[0-9]+番).{0,16}(?:上げて|下げて|変えて|代えて|にして)[!！?？〜～ー]*$/u,
+];
 
 function hasPersonOrRoleTarget(target: TargetMatch): boolean {
   return target.targetType === 'person' || target.targetType === 'role';
@@ -270,6 +283,42 @@ export function detectImperative(text: string): FeatureResult {
           : lowConfidence
             ? 'suggestion-pressure'
             : 'soft-imperative',
+    };
+  }
+  return { matched: false, score: 0 };
+}
+
+/** Detect terse strategy calls that are specific to PowerPro-style baseball
+ * streams. These often omit a verb entirely (for example 「伝令」 or
+ * 「内角かな」), so the generic imperative detector cannot identify them. */
+export function detectPowerProInstruction(text: string): FeatureResult {
+  if (isObviouslySafe(text))
+    return { matched: false, score: 0, feature: 'safe-context' };
+  if (POWERPRO_DIRECT_TACTIC.test(text) || POWERPRO_TACTIC_CHAIN.test(text)) {
+    return {
+      matched: true,
+      score: 0.68,
+      reason: 'パワプロの采配・操作を直接促す表現',
+      feature: 'powerpro-direct-tactic',
+    };
+  }
+  if (POWERPRO_LINEUP_CHANGE.some((pattern) => pattern.test(text))) {
+    return {
+      matched: true,
+      score: 0.68,
+      reason: 'パワプロの選手起用・打順変更を促す表現',
+      feature: 'powerpro-lineup-change',
+    };
+  }
+  if (
+    POWERPRO_TERSE_TACTIC.test(text) ||
+    POWERPRO_TACTIC_SUGGESTION.test(text)
+  ) {
+    return {
+      matched: true,
+      score: 0.58,
+      reason: 'パワプロの采配候補を指定する短い表現',
+      feature: 'powerpro-terse-tactic',
     };
   }
   return { matched: false, score: 0 };
@@ -435,6 +484,7 @@ export function extractFeatures(
   return {
     target,
     imperative: detectImperative(text),
+    powerProInstruction: detectPowerProInstruction(text),
     blame: detectBlame(text, target),
     abilityAttack: detectAbilityAttack(text, target),
     personalAttack: detectPersonalAttack(text, target),

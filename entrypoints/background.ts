@@ -2,6 +2,11 @@ import { browser } from 'wxt/browser';
 import { listModels } from '../lib/lm-studio';
 import { LocalAiResolver } from '../lib/local-ai/resolver';
 import { DebugHistoryStore } from '../lib/debug-history';
+import { IndexedDbFeedbackStore } from '../lib/feedback/store';
+import {
+  FEEDBACK_MEMORY_PORT_NAME,
+  type FeedbackMemoryPortMessage,
+} from '../lib/feedback/types';
 import { FlowChatMetricsStore } from '../lib/integrations/flow-chat/metrics';
 import {
   aggregateSessionSummaries,
@@ -116,8 +121,57 @@ async function getLmStudioStatus(): Promise<LmStudioStatus> {
 
 export default defineBackground(() => {
   const debugHistory = new DebugHistoryStore();
+  const feedbackStore = new IndexedDbFeedbackStore();
+  const feedbackPorts = new Map<
+    ReturnType<typeof browser.runtime.connect>,
+    FeedbackMemoryPortMessage[] | undefined
+  >();
   const flowMetrics = new FlowChatMetricsStore();
   void ensureSettings();
+
+  const postFeedbackMemory = (
+    port: ReturnType<typeof browser.runtime.connect>,
+    message: FeedbackMemoryPortMessage,
+  ): boolean => {
+    try {
+      port.postMessage(message);
+      return true;
+    } catch {
+      feedbackPorts.delete(port);
+      return false;
+    }
+  };
+
+  const publishFeedbackMemory = (message: FeedbackMemoryPortMessage) => {
+    for (const [port, pending] of feedbackPorts) {
+      if (pending) {
+        pending.push(message);
+        continue;
+      }
+      postFeedbackMemory(port, message);
+    }
+  };
+
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== FEEDBACK_MEMORY_PORT_NAME) return;
+    feedbackPorts.set(port, []);
+    port.onDisconnect.addListener(() => feedbackPorts.delete(port));
+    void feedbackStore
+      .listExactMemories()
+      .then((memories) => {
+        const pending = feedbackPorts.get(port);
+        if (
+          !pending ||
+          !postFeedbackMemory(port, { kind: 'replace', memories })
+        )
+          return;
+        feedbackPorts.set(port, undefined);
+        for (const message of pending) {
+          if (!postFeedbackMemory(port, message)) break;
+        }
+      })
+      .catch(() => feedbackPorts.delete(port));
+  });
 
   browser.runtime.onInstalled.addListener(() => {
     void ensureSettings();
@@ -138,6 +192,94 @@ export default defineBackground(() => {
 
   browser.runtime.onMessage.addListener((message: unknown, sender) => {
     const request = message as RuntimeMessage;
+    if (request.type === 'feedback:add') {
+      return feedbackStore
+        .add(request.entry)
+        .then<RuntimeResponse>(({ exactMemory, feedbackStats }) => {
+          publishFeedbackMemory({ kind: 'update', memory: exactMemory });
+          return { ok: true, exactMemory, feedbackStats };
+        })
+        .catch<RuntimeResponse>((error: unknown) => ({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'フィードバックを保存できませんでした。',
+        }));
+    }
+
+    if (request.type === 'feedback:list') {
+      return feedbackStore
+        .list()
+        .then<RuntimeResponse>((feedbackEntries) => ({
+          ok: true,
+          feedbackEntries,
+        }))
+        .catch<RuntimeResponse>(() => ({
+          ok: false,
+          error: 'フィードバック一覧を取得できませんでした。',
+        }));
+    }
+
+    if (request.type === 'feedback:stats') {
+      return Promise.all([
+        feedbackStore.listRuleStats(),
+        feedbackStore.summary(),
+      ])
+        .then<RuntimeResponse>(([feedbackStats, feedbackSummary]) => ({
+          ok: true,
+          feedbackStats,
+          feedbackSummary,
+        }))
+        .catch<RuntimeResponse>(() => ({
+          ok: false,
+          error: 'フィードバック統計を取得できませんでした。',
+        }));
+    }
+
+    if (request.type === 'feedback:exact-list') {
+      return feedbackStore
+        .listExactMemories()
+        .then<RuntimeResponse>((exactMemories) => ({ ok: true, exactMemories }))
+        .catch<RuntimeResponse>(() => ({
+          ok: false,
+          error: 'フィードバック記憶を取得できませんでした。',
+        }));
+    }
+
+    if (request.type === 'feedback:lookup-exact') {
+      return feedbackStore
+        .lookupExact(request.normalizedText)
+        .then<RuntimeResponse>((exactFeedback) => ({ ok: true, exactFeedback }))
+        .catch<RuntimeResponse>(() => ({
+          ok: false,
+          error: 'フィードバック記憶を取得できませんでした。',
+        }));
+    }
+
+    if (request.type === 'feedback:clear') {
+      return feedbackStore
+        .clear()
+        .then<RuntimeResponse>(() => {
+          publishFeedbackMemory({ kind: 'clear' });
+          return { ok: true };
+        })
+        .catch<RuntimeResponse>(() => ({
+          ok: false,
+          error: 'フィードバックを消去できませんでした。',
+        }));
+    }
+
+    if (request.type === 'feedback:export') {
+      return feedbackStore
+        .exportJsonl()
+        .then<RuntimeResponse>((jsonl) => ({ ok: true, jsonl }))
+        .catch<RuntimeResponse>(() => ({
+          ok: false,
+          error: 'フィードバックをエクスポートできませんでした。',
+        }));
+    }
+
     if (request.type === 'debug:get') {
       return Promise.resolve<RuntimeResponse>({
         ok: true,

@@ -136,5 +136,47 @@
     "expectedCategory": "backseat",
     "expectedAction": "dim",
     "source": "pRLHQpvk9TM"
+  },
+  {
+    "text": "伝令",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "iby-BBuoWMw"
+  },
+  {
+    "text": "スクイズかな",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "fJeHs2bCb3o"
+  },
+  {
+    "text": "守備伝令使ってね！！！！！",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "a4W0NCrsybk"
+  },
+  {
+    "text": "住友と岡本交代して！！！",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "a4W0NCrsybk"
+  },
+  {
+    "text": "内角でいこう",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "fJeHs2bCb3o"
+  },
+  {
+    "text": "代走は？",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "-dGz4_bucmM"
+  },
+  {
+    "text": "思考使って転がせ",
+    "expectedCategory": "backseat",
+    "expectedAction": "dim",
+    "source": "iby-BBuoWMw"
   }
 ]

@@ -34,11 +34,20 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({});
   mocks.set.mockResolvedValue(undefined);
   mocks.request.mockResolvedValue(true);
-  mocks.sendMessage.mockImplementation(async (message: RuntimeMessage) =>
-    message.type === 'debug:get'
-      ? { ok: true, entries: [] }
-      : { ok: true, models: ['qwen3-8b'] },
-  );
+  mocks.sendMessage.mockImplementation(async (message: RuntimeMessage) => {
+    if (message.type === 'debug:get') return { ok: true, entries: [] };
+    if (message.type === 'feedback:list')
+      return { ok: true, feedbackEntries: [] };
+    if (message.type === 'feedback:stats')
+      return {
+        ok: true,
+        feedbackStats: [],
+        feedbackSummary: { total: 0, correct: 0, incorrect: 0, missed: 0 },
+      };
+    if (message.type === 'feedback:lookup-exact')
+      return { ok: true, exactFeedback: null };
+    return { ok: true, models: ['qwen3-8b'] };
+  });
 });
 
 afterEach(() => {
@@ -136,6 +145,35 @@ describe('options', () => {
     const result = await screen.findByLabelText('診断結果');
     expect(within(result).getByText('判定理由')).toBeInTheDocument();
     expect(within(result).getByText('指示・指示厨')).toBeInTheDocument();
+  });
+
+  it('診断結果の正誤をフィードバックとして保存する', async () => {
+    render(<App />);
+    await screen.findByRole('heading', { name: '診断プレビュー' });
+    fireEvent.change(screen.getByLabelText('サンプルコメント'), {
+      target: { value: '死ね' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '判定を試す' }));
+    const result = await screen.findByLabelText('診断結果');
+    fireEvent.click(within(result).getByRole('button', { name: '正しい' }));
+
+    await waitFor(() =>
+      expect(mocks.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'feedback:add',
+          entry: expect.objectContaining({
+            text: '死ね',
+            normalizedText: '死ね',
+            judgement: 'correct',
+            correctCategory: 'personal_attack',
+            source: 'rules',
+          }),
+        }),
+      ),
+    );
+    expect(
+      within(result).getByText('フィードバックを記録しました。'),
+    ).toBeInTheDocument();
   });
 
   it('デバッグモードの履歴と理由を表示して消去できる', async () => {

@@ -20,6 +20,8 @@ import { prefilter } from './prefilter';
 import { matchRules } from './rules';
 import { SpamDetector } from './spam';
 import { extractFeatures } from './features';
+import { exactFeedbackScore } from '../feedback/learner';
+import type { ExactFeedbackResult } from '../feedback/types';
 
 export interface FilterContext {
   conflictLevel?: number;
@@ -49,6 +51,7 @@ export function createFilterEngine() {
     settings: SettingsV1,
     learned?: LmClassificationResult | null,
     context?: FilterContext,
+    humanFeedback?: ExactFeedbackResult | null,
   ): FilterResult => {
     const profile = settings.profiles[settings.activePreset];
     const text = normalizeText(message.text);
@@ -125,6 +128,9 @@ export function createFilterEngine() {
         'matched',
       );
     }
+
+    const exactFeedback = resultFromHumanFeedback(humanFeedback, profile);
+    if (exactFeedback) return exactFeedback;
 
     if (isObviouslySafe(text)) {
       return result(
@@ -338,7 +344,65 @@ export function mergeAiResult(
     ],
     features,
     contextAdjustment: (base.contextAdjustment ?? 0) + adjusted.adjustment,
+    source: 'local-ai',
   };
+}
+
+function resultFromHumanFeedback(
+  feedback: ExactFeedbackResult | null | undefined,
+  profile: SettingsV1['profiles'][SettingsV1['activePreset']],
+): FilterResult | null {
+  if (
+    !feedback ||
+    feedback.category === 'unknown' ||
+    feedback.category === 'hidden_user'
+  )
+    return null;
+
+  const category = feedback.category;
+  if (category === 'safe') {
+    return result(
+      0,
+      ['safe'],
+      ['ユーザーフィードバックによる過去の訂正'],
+      'allow',
+      false,
+      'matched',
+      {
+        confidence: feedback.confidence,
+        categoryScores: { safe: 0 },
+        ruleIds: ['HUMAN_FEEDBACK_EXACT_001'],
+        features: ['human-feedback-exact'],
+        source: 'human-feedback',
+      },
+    );
+  }
+
+  if (category === 'spam') {
+    if (!profile.hideSpam) return null;
+  } else if (
+    !isConfigurableCategory(category) ||
+    !profile.categories[category].enabled
+  ) {
+    return null;
+  }
+
+  const score = exactFeedbackScore(feedback);
+  return result(
+    score,
+    [category],
+    [`ユーザーフィードバックによる過去の訂正（${feedback.sampleCount}件）`],
+    actionForResult(score, [category], profile),
+    false,
+    'matched',
+    {
+      confidence: feedback.confidence,
+      categoryScores: { [category]: score },
+      ruleIds: ['HUMAN_FEEDBACK_EXACT_001'],
+      features: ['human-feedback-exact'],
+      source: 'human-feedback',
+    },
+  );
 }
 
 function applyContextModifier(
@@ -488,9 +552,11 @@ function result(
     | 'ruleIds'
     | 'features'
     | 'contextAdjustment'
+    | 'source'
   >,
 ): FilterResult {
   return {
+    source: 'rules',
     score,
     categories,
     reasons,

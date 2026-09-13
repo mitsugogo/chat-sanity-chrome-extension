@@ -256,5 +256,65 @@
     "expectedCategory": "safe",
     "expectedAction": "allow",
     "source": "grsIwh-FYlk"
+  },
+  {
+    "text": "ナイスバント",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "fJeHs2bCb3o"
+  },
+  {
+    "text": "スクイズ成功",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "a4W0NCrsybk"
+  },
+  {
+    "text": "しれっと盗塁してる",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "fJeHs2bCb3o"
+  },
+  {
+    "text": "守備交代だった",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "-dGz4_bucmM"
+  },
+  {
+    "text": "魔物きた！",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "iby-BBuoWMw"
+  },
+  {
+    "text": "伝令ありがとう",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "0rM5tw-eHTc"
+  },
+  {
+    "text": "内角うまい",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "fJeHs2bCb3o"
+  },
+  {
+    "text": "バントしやすくなる",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "iby-BBuoWMw"
+  },
+  {
+    "text": "伝令で正解ですね 育成論として",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "a4W0NCrsybk"
+  },
+  {
+    "text": "主人公交代と配信画面に居るお姉ちゃん交代？",
+    "expectedCategory": "safe",
+    "expectedAction": "allow",
+    "source": "-dGz4_bucmM"
   }
 ]

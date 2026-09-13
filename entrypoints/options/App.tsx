@@ -5,6 +5,16 @@ import { Switch } from '../../components/Switch';
 import { mergeAiResult, createFilterEngine } from '../../lib/filter/engine';
 import { normalizeText } from '../../lib/filter/normalize';
 import {
+  createFeedbackEntry,
+  FEEDBACK_CATEGORY_CHOICES,
+  type FeedbackEntry,
+  type FeedbackJudgement,
+  type ExactFeedbackResult,
+  type FeedbackSummary,
+  type RuleFeedbackStats,
+} from '../../lib/feedback/types';
+import { CLASSIFIER_PROMPT_VERSION } from '../../lib/local-ai/prompt';
+import {
   getChromeBuiltInAvailability,
   prepareChromeBuiltInAi,
 } from '../../lib/local-ai/providers/chrome-built-in';
@@ -27,6 +37,7 @@ import {
 import type {
   ConfigurableCategory,
   DiagnosticEntry,
+  FilterCategory,
   FilterMode,
   PresetId,
   RuntimeMessage,
@@ -82,6 +93,12 @@ export default function App() {
   const [testing, setTesting] = useState(false);
   const [debugEntries, setDebugEntries] = useState<DiagnosticEntry[]>([]);
   const [debugError, setDebugError] = useState('');
+  const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
+  const [feedbackStats, setFeedbackStats] = useState<RuleFeedbackStats[]>([]);
+  const [feedbackSummary, setFeedbackSummary] =
+    useState<FeedbackSummary | null>(null);
+  const [feedbackError, setFeedbackError] = useState('');
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [flowMetrics, setFlowMetrics] =
     useState<FlowChatMetricsSnapshot | null>(null);
   const [chromeAiAvailability, setChromeAiAvailability] =
@@ -133,6 +150,137 @@ export default function App() {
       );
     }
   }, []);
+
+  const refreshFeedback = useCallback(async () => {
+    setFeedbackLoading(true);
+    try {
+      const [entriesResponse, statsResponse] = (await Promise.all([
+        browser.runtime.sendMessage({
+          type: 'feedback:list',
+        } satisfies RuntimeMessage),
+        browser.runtime.sendMessage({
+          type: 'feedback:stats',
+        } satisfies RuntimeMessage),
+      ])) as [RuntimeResponse, RuntimeResponse];
+      if (!entriesResponse.ok || !('feedbackEntries' in entriesResponse)) {
+        throw new Error(
+          entriesResponse.ok
+            ? 'フィードバック一覧を取得できませんでした。'
+            : entriesResponse.error,
+        );
+      }
+      if (
+        !statsResponse.ok ||
+        !('feedbackStats' in statsResponse) ||
+        !('feedbackSummary' in statsResponse)
+      ) {
+        throw new Error(
+          statsResponse.ok
+            ? 'フィードバック統計を取得できませんでした。'
+            : statsResponse.error,
+        );
+      }
+      setFeedbackEntries(entriesResponse.feedbackEntries);
+      setFeedbackStats(statsResponse.feedbackStats);
+      setFeedbackSummary(statsResponse.feedbackSummary);
+      setFeedbackError('');
+    } catch (error) {
+      setFeedbackError(
+        error instanceof Error
+          ? error.message
+          : 'フィードバックを取得できませんでした。',
+      );
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }, []);
+
+  const submitFeedback = useCallback(
+    async (
+      diagnosticEntry: DiagnosticEntry,
+      judgement: FeedbackJudgement,
+      correctCategory: FilterCategory,
+    ) => {
+      const entry = createFeedbackEntry({
+        diagnostic: diagnosticEntry,
+        normalizedText:
+          diagnosticEntry.normalizedText ?? normalizeText(diagnosticEntry.text),
+        judgement,
+        correctCategory,
+        messageId: diagnosticEntry.id,
+      });
+      const response = (await browser.runtime.sendMessage({
+        type: 'feedback:add',
+        entry,
+      } satisfies RuntimeMessage)) as RuntimeResponse;
+      if (!response.ok)
+        throw new Error(
+          response.error || 'フィードバックを保存できませんでした。',
+        );
+      await refreshFeedback();
+    },
+    [refreshFeedback],
+  );
+
+  const exportFeedback = useCallback(async () => {
+    try {
+      const response = (await browser.runtime.sendMessage({
+        type: 'feedback:export',
+      } satisfies RuntimeMessage)) as RuntimeResponse;
+      if (!response.ok || !('jsonl' in response)) {
+        throw new Error(
+          response.ok
+            ? 'フィードバックをエクスポートできませんでした。'
+            : response.error,
+        );
+      }
+      if (typeof URL.createObjectURL !== 'function')
+        throw new Error('この画面ではダウンロードを開始できません。');
+      const blob = new Blob([response.jsonl], {
+        type: 'application/x-ndjson;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `chat-sanity-feedback-${new Date().toISOString().slice(0, 10)}.jsonl`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setFeedbackError('');
+    } catch (error) {
+      setFeedbackError(
+        error instanceof Error
+          ? error.message
+          : 'フィードバックをエクスポートできませんでした。',
+      );
+    }
+  }, []);
+
+  const clearFeedback = useCallback(async () => {
+    if (!window.confirm('保存済みのフィードバックをすべて消去しますか？'))
+      return;
+    try {
+      const response = (await browser.runtime.sendMessage({
+        type: 'feedback:clear',
+      } satisfies RuntimeMessage)) as RuntimeResponse;
+      if (!response.ok)
+        throw new Error(
+          response.error || 'フィードバックを消去できませんでした。',
+        );
+      await refreshFeedback();
+    } catch (error) {
+      setFeedbackError(
+        error instanceof Error
+          ? error.message
+          : 'フィードバックを消去できませんでした。',
+      );
+    }
+  }, [refreshFeedback]);
+
+  useEffect(() => {
+    void refreshFeedback();
+  }, [refreshFeedback]);
 
   useEffect(() => {
     if (!settings.debugMode) {
@@ -275,15 +423,40 @@ export default function App() {
       timestamp: Date.now(),
     };
     const diagnosticSettings = sanitizeSettings(settings);
-    const base = createFilterEngine()(message, diagnosticSettings);
+    const normalizedText = normalizeText(testText);
+    let exactFeedback: ExactFeedbackResult | null = null;
+    try {
+      const response = (await browser.runtime.sendMessage({
+        type: 'feedback:lookup-exact',
+        normalizedText,
+      } satisfies RuntimeMessage)) as RuntimeResponse;
+      if (response.ok && 'exactFeedback' in response)
+        exactFeedback = response.exactFeedback;
+    } catch {
+      // A diagnostic must remain usable when IndexedDB or the worker is unavailable.
+    }
+    const base = createFilterEngine()(
+      message,
+      diagnosticSettings,
+      undefined,
+      undefined,
+      exactFeedback,
+    );
     let entry: DiagnosticEntry = {
       id: message.id,
       text: testText,
+      normalizedText,
       category: base.categories[0] ?? 'safe',
       score: base.score,
       action: base.action,
       reasons: base.reasons,
-      source: 'rules',
+      ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
+      ...(base.features ? { features: base.features } : {}),
+      ...(typeof base.contextAdjustment === 'number'
+        ? { contextAdjustment: base.contextAdjustment }
+        : {}),
+      source: base.source ?? 'rules',
+      classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
       timestamp: message.timestamp,
     };
 
@@ -309,10 +482,23 @@ export default function App() {
           score: merged.score,
           action: merged.action,
           reasons: merged.reasons,
+          ...(merged.ruleIds ? { ruleIds: merged.ruleIds } : {}),
+          ...(merged.features ? { features: merged.features } : {}),
+          ...(typeof merged.contextAdjustment === 'number'
+            ? { contextAdjustment: merged.contextAdjustment }
+            : {}),
           source: 'local-ai',
           aiProvider: response.providerId,
           aiReason: 'uncertain-score',
           aiLatencyMs: response.latencyMs,
+          ...(typeof (
+            response.results[0].confidence ?? response.results[0].score
+          ) === 'number'
+            ? {
+                aiConfidence:
+                  response.results[0].confidence ?? response.results[0].score,
+              }
+            : {}),
         };
       } catch (error) {
         entry = {
@@ -346,11 +532,12 @@ export default function App() {
           <a href="#local-ai">ローカルAI</a>
           <a href="#flow-chat">Flow Chat連携</a>
           <a href="#diagnostic">診断</a>
+          <a href="#feedback">フィードバック</a>
           <a href="#debug-history">デバッグ履歴</a>
         </nav>
         <div className="sidebar-footer">
           <span>設定はChrome同期に保存</span>
-          <span>コメント履歴は保存しません</span>
+          <span>明示したフィードバックだけ端末内に保存</span>
         </div>
       </aside>
 
@@ -938,7 +1125,11 @@ export default function App() {
                 {testing ? '判定中…' : '判定を試す'}
               </button>
               {diagnostic ? (
-                <DiagnosticResult entry={diagnostic} />
+                <DiagnosticResult
+                  key={diagnostic.id}
+                  entry={diagnostic}
+                  onFeedback={submitFeedback}
+                />
               ) : (
                 <p className="empty-diagnostic">
                   コメントを入力して判定結果を確認できます。
@@ -955,6 +1146,17 @@ export default function App() {
           error={debugError}
           onRefresh={() => void refreshDebugHistory()}
           onClear={() => void clearDebugHistory()}
+        />
+
+        <FeedbackPanel
+          entries={feedbackEntries}
+          stats={feedbackStats}
+          summary={feedbackSummary}
+          error={feedbackError}
+          loading={feedbackLoading}
+          onRefresh={() => void refreshFeedback()}
+          onExport={() => void exportFeedback()}
+          onClear={() => void clearFeedback()}
         />
 
         <footer className="save-bar">
@@ -1156,8 +1358,56 @@ function WordList({
   );
 }
 
-function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
+function DiagnosticResult({
+  entry,
+  onFeedback,
+}: {
+  entry: DiagnosticEntry;
+  onFeedback: (
+    entry: DiagnosticEntry,
+    judgement: FeedbackJudgement,
+    correctCategory: FilterCategory,
+  ) => Promise<void>;
+}) {
   const category = categoryLabel(entry.category);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctCategory, setCorrectCategory] = useState<FilterCategory | null>(
+    null,
+  );
+  const [saving, setSaving] = useState(false);
+  const [feedbackStatus, setFeedbackStatus] = useState('');
+
+  const saveFeedback = async (
+    judgement: FeedbackJudgement,
+    selectedCategory: FilterCategory,
+  ) => {
+    setSaving(true);
+    setFeedbackStatus('');
+    try {
+      await onFeedback(entry, judgement, selectedCategory);
+      setCorrectionOpen(false);
+      setCorrectCategory(null);
+      setFeedbackStatus('フィードバックを記録しました。');
+    } catch (error) {
+      setFeedbackStatus(
+        error instanceof Error
+          ? error.message
+          : 'フィードバックを保存できませんでした。',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitCorrection = () => {
+    if (!correctCategory) return;
+    const judgement: FeedbackJudgement =
+      entry.category === 'safe' && correctCategory !== 'safe'
+        ? 'missed'
+        : 'incorrect';
+    void saveFeedback(judgement, correctCategory);
+  };
+
   return (
     <div className="diagnostic-result" aria-label="診断結果">
       <dl>
@@ -1174,16 +1424,7 @@ function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
           <dd>{ACTION_LABELS[entry.action]}</dd>
         </div>
       </dl>
-      <p>
-        判定元:{' '}
-        {entry.source === 'rules'
-          ? 'ルール'
-          : entry.source === 'local-ai'
-            ? entry.aiReason === 'zero-score-audit'
-              ? 'ローカルAI（Zero-score Audit）'
-              : 'ローカルAI'
-            : 'ルール（AI失敗）'}
-      </p>
+      <p>判定元: {sourceLabel(entry.source, entry.aiReason)}</p>
       {entry.aiProvider ? (
         <p>
           AI Provider:{' '}
@@ -1216,7 +1457,308 @@ function DiagnosticResult({ entry }: { entry: DiagnosticEntry }) {
             : ''}
         </p>
       ) : null}
+      <div
+        className="diagnostic-feedback"
+        aria-label="診断結果へのフィードバック"
+      >
+        {!correctionOpen ? (
+          <>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={saving}
+              onClick={() => void saveFeedback('correct', entry.category)}
+            >
+              正しい
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setFeedbackStatus('');
+                setCorrectionOpen(true);
+              }}
+            >
+              間違い
+            </button>
+          </>
+        ) : (
+          <fieldset className="feedback-category-picker">
+            <legend>本来のカテゴリ</legend>
+            {FEEDBACK_CATEGORY_CHOICES.map((choice) => (
+              <label key={choice}>
+                <input
+                  type="radio"
+                  name="diagnostic-correct-category"
+                  checked={correctCategory === choice}
+                  onChange={() => setCorrectCategory(choice)}
+                />
+                <span>{categoryLabel(choice)}</span>
+              </label>
+            ))}
+            <div className="feedback-picker-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={saving || !correctCategory}
+                onClick={submitCorrection}
+              >
+                このカテゴリで記録
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={saving}
+                onClick={() => {
+                  setCorrectionOpen(false);
+                  setCorrectCategory(null);
+                }}
+              >
+                キャンセル
+              </button>
+            </div>
+          </fieldset>
+        )}
+        {feedbackStatus ? (
+          <p
+            className={
+              feedbackStatus === 'フィードバックを記録しました。'
+                ? 'feedback-success'
+                : 'feedback-error'
+            }
+            role="status"
+          >
+            {feedbackStatus}
+          </p>
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+function FeedbackPanel({
+  entries,
+  stats,
+  summary,
+  error,
+  loading,
+  onRefresh,
+  onExport,
+  onClear,
+}: {
+  entries: FeedbackEntry[];
+  stats: RuleFeedbackStats[];
+  summary: FeedbackSummary | null;
+  error: string;
+  loading: boolean;
+  onRefresh: () => void;
+  onExport: () => void;
+  onClear: () => void;
+}) {
+  const [kind, setKind] = useState<'all' | 'incorrect' | 'missed'>('all');
+  const [category, setCategory] = useState<FilterCategory | 'all'>('all');
+  const [ruleId, setRuleId] = useState('all');
+  const [source, setSource] = useState<FeedbackEntry['source'] | 'all'>('all');
+  const ruleIds = useMemo(
+    () => Array.from(new Set(entries.flatMap((entry) => entry.ruleIds))).sort(),
+    [entries],
+  );
+  const filteredEntries = useMemo(
+    () =>
+      entries.filter((entry) => {
+        if (kind !== 'all' && entry.judgement !== kind) return false;
+        if (
+          category !== 'all' &&
+          entry.correctCategory !== category &&
+          entry.predictedCategory !== category
+        )
+          return false;
+        if (ruleId !== 'all' && !entry.ruleIds.includes(ruleId)) return false;
+        return source === 'all' || entry.source === source;
+      }),
+    [category, entries, kind, ruleId, source],
+  );
+
+  return (
+    <section className="panel feedback-panel" id="feedback">
+      <div className="section-heading">
+        <div>
+          <h2>フィードバック</h2>
+          <p>
+            訂正した判定を確認し、同一の正規化本文だけを次回の判定へ反映します。
+          </p>
+        </div>
+        <div className="feedback-actions">
+          <button type="button" onClick={onRefresh} disabled={loading}>
+            更新
+          </button>
+          <button type="button" onClick={onExport} disabled={loading}>
+            JSONLでエクスポート
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={loading || entries.length === 0}
+          >
+            すべて消去
+          </button>
+        </div>
+      </div>
+      {summary ? (
+        <div className="feedback-summary" aria-label="フィードバック集計">
+          <span>評価済 {summary.total}</span>
+          <span>正しい {summary.correct}</span>
+          <span>誤判定 {summary.incorrect}</span>
+          <span>見逃し {summary.missed}</span>
+        </div>
+      ) : null}
+      <p className="privacy-note">
+        フィードバックデータはこのブラウザの拡張機能内に保存され、自動的に外部へ送信されません。JSONL出力はこのボタンを押した場合だけ行います。
+      </p>
+      {error ? (
+        <p className="debug-history-error" role="alert">
+          {error}
+        </p>
+      ) : (
+        <>
+          <div
+            className="feedback-filters"
+            aria-label="フィードバックの絞り込み"
+          >
+            <label>
+              種類
+              <select
+                value={kind}
+                onChange={(event) =>
+                  setKind(
+                    event.target.value === 'incorrect' ||
+                      event.target.value === 'missed'
+                      ? event.target.value
+                      : 'all',
+                  )
+                }
+              >
+                <option value="all">All</option>
+                <option value="incorrect">False Positive</option>
+                <option value="missed">False Negative</option>
+              </select>
+            </label>
+            <label>
+              カテゴリ
+              <select
+                value={category}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setCategory(isFeedbackCategory(value) ? value : 'all');
+                }}
+              >
+                <option value="all">All</option>
+                {FEEDBACK_CATEGORY_CHOICES.map((choice) => (
+                  <option key={choice} value={choice}>
+                    {categoryLabel(choice)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Rule ID
+              <select
+                value={ruleId}
+                onChange={(event) => setRuleId(event.target.value)}
+              >
+                <option value="all">All</option>
+                {ruleIds.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              判定元
+              <select
+                value={source}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSource(
+                    value === 'rules' ||
+                      value === 'local-ai' ||
+                      value === 'human-feedback' ||
+                      value === 'fallback'
+                      ? value
+                      : 'all',
+                  );
+                }}
+              >
+                <option value="all">All</option>
+                <option value="rules">ルール</option>
+                <option value="local-ai">ローカルAI</option>
+                <option value="human-feedback">過去の訂正</option>
+                <option value="fallback">AI失敗時のルール</option>
+              </select>
+            </label>
+          </div>
+          {filteredEntries.length === 0 ? (
+            <p className="empty-diagnostic">
+              {entries.length === 0
+                ? 'まだフィードバックはありません。診断結果またはデバッグ中のチャットから記録できます。'
+                : '条件に一致するフィードバックはありません。'}
+            </p>
+          ) : (
+            <ol className="feedback-list" aria-label="フィードバック一覧">
+              {filteredEntries.map((entry) => (
+                <li key={entry.id}>
+                  <div className="feedback-list-meta">
+                    <strong>{feedbackJudgementLabel(entry.judgement)}</strong>
+                    <span>{sourceLabel(entry.source, entry.aiReason)}</span>
+                    <time dateTime={new Date(entry.createdAt).toISOString()}>
+                      {new Date(entry.createdAt).toLocaleString('ja-JP')}
+                    </time>
+                  </div>
+                  <p className="feedback-list-text">{entry.text}</p>
+                  <p className="feedback-list-result">
+                    {categoryLabel(entry.predictedCategory)}{' '}
+                    {entry.predictedScore.toFixed(2)}（
+                    {ACTION_LABELS[entry.predictedAction]}） →{' '}
+                    {categoryLabel(entry.correctCategory)}
+                  </p>
+                  {entry.ruleIds.length > 0 ? (
+                    <p className="debug-history-features">
+                      ルールID: {entry.ruleIds.join('・')}
+                    </p>
+                  ) : null}
+                  {entry.features.length > 0 ? (
+                    <p className="debug-history-features">
+                      特徴: {entry.features.join('・')}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      )}
+      <div className="rule-feedback-stats">
+        <h3>ルール別統計</h3>
+        {stats.length === 0 ? (
+          <p className="empty-diagnostic">評価されたルールはまだありません。</p>
+        ) : (
+          <ul aria-label="ルール別フィードバック統計">
+            {stats.map((stat) => (
+              <li key={stat.ruleId}>
+                <strong>{stat.ruleId}</strong>
+                <span>評価 {stat.evaluated}</span>
+                <span>正解 {stat.correct}</span>
+                <span>誤判定 {stat.incorrect}</span>
+                <span>見逃し {stat.falseNegative}</span>
+                <span>Precision {(stat.precision * 100).toFixed(1)}%</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1358,10 +1900,27 @@ function FlowMetricsSummary({ metrics }: { metrics: FlowChatMetricsSnapshot }) {
   );
 }
 
-function sourceLabel(source: DiagnosticEntry['source']): string {
-  if (source === 'local-ai') return 'ローカルAI';
+function sourceLabel(
+  source: DiagnosticEntry['source'],
+  aiReason?: DiagnosticEntry['aiReason'],
+): string {
+  if (source === 'local-ai')
+    return aiReason === 'zero-score-audit'
+      ? 'ローカルAI（Zero-score Audit）'
+      : 'ローカルAI';
+  if (source === 'human-feedback') return '過去のユーザー訂正';
   if (source === 'fallback') return 'ルール（AI失敗）';
   return 'ルール';
+}
+
+function feedbackJudgementLabel(judgement: FeedbackJudgement): string {
+  if (judgement === 'correct') return '正しい';
+  if (judgement === 'missed') return '見逃し';
+  return '誤判定';
+}
+
+function isFeedbackCategory(value: string): value is FilterCategory {
+  return FEEDBACK_CATEGORY_CHOICES.some((category) => category === value);
 }
 
 function chromeAvailabilityLabel(availability: LocalAiAvailability): string {

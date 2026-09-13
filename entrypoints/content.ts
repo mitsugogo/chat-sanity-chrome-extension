@@ -14,6 +14,13 @@ import {
 import { normalizeText } from '../lib/filter/normalize';
 import { AuditSampler, type AuditDecision } from '../lib/filter/audit-sampler';
 import { SessionRuleLearner } from '../lib/filter/session-learning';
+import { FeedbackLearner } from '../lib/feedback/learner';
+import {
+  createFeedbackEntry,
+  FEEDBACK_MEMORY_PORT_NAME,
+  isFeedbackMemoryPortMessage,
+  type FeedbackJudgement,
+} from '../lib/feedback/types';
 import { CATEGORY_LABELS } from '../lib/settings';
 import { isLocalAiConfigured } from '../lib/settings';
 import { CLASSIFIER_PROMPT_VERSION } from '../lib/local-ai/prompt';
@@ -70,7 +77,51 @@ export default defineContentScript({
   runAt: 'document_start',
   cssInjectionMode: 'manifest',
   async main(ctx) {
-    let settings = await loadSettings();
+    const [initialSettings, feedbackResponse] = await Promise.all([
+      loadSettings(),
+      sendRuntimeMessage({ type: 'feedback:exact-list' }).catch(
+        () => undefined,
+      ),
+    ]);
+    let settings = initialSettings;
+    const feedbackLearner = new FeedbackLearner();
+    const feedbackSnapshot = feedbackResponse as RuntimeResponse | undefined;
+    if (feedbackSnapshot?.ok && 'exactMemories' in feedbackSnapshot)
+      feedbackLearner.hydrate(feedbackSnapshot.exactMemories);
+    let feedbackPort: ReturnType<typeof browser.runtime.connect> | undefined;
+    let feedbackPortDisposed = false;
+    const connectFeedbackMemory = () => {
+      if (
+        feedbackPortDisposed ||
+        feedbackPort ||
+        typeof browser.runtime.connect !== 'function'
+      )
+        return;
+      try {
+        const port = browser.runtime.connect({
+          name: FEEDBACK_MEMORY_PORT_NAME,
+        });
+        feedbackPort = port;
+        port.onMessage.addListener((message: unknown) => {
+          if (!isFeedbackMemoryPortMessage(message)) return;
+          if (message.kind === 'replace')
+            feedbackLearner.hydrate(message.memories);
+          else if (message.kind === 'update')
+            feedbackLearner.observeMemory(message.memory);
+          else feedbackLearner.clear();
+        });
+        port.onDisconnect.addListener(() => {
+          if (feedbackPort !== port) return;
+          feedbackPort = undefined;
+          if (!feedbackPortDisposed)
+            window.setTimeout(connectFeedbackMemory, 1_000);
+        });
+      } catch {
+        // The initial snapshot above keeps filtering available if the worker is
+        // restarting or extension messaging has already been invalidated.
+      }
+    };
+    connectFeedbackMemory();
     let summary: SessionSummary = {
       active: true,
       hidden: 0,
@@ -260,6 +311,7 @@ export default defineContentScript({
       ai: LmClassificationResult,
       message: ChatMessage,
       record: (entry: DiagnosticEntry) => void,
+      render: (result: FilterResult, entry: DiagnosticEntry) => void,
       context: FilterContext,
       flowDebug: FlowChatDebugInfo | undefined,
       requestReason: AiRequestReason,
@@ -291,6 +343,7 @@ export default defineContentScript({
       const diagnostic: DiagnosticEntry = {
         id: message.id,
         text: message.text,
+        normalizedText: normalizeText(message.text),
         category,
         score,
         action,
@@ -300,6 +353,16 @@ export default defineContentScript({
         ...(typeof result.contextAdjustment === 'number'
           ? { contextAdjustment: result.contextAdjustment }
           : {}),
+        ...(context.sameAuthorRecent && context.sameAuthorRecent.length > 0
+          ? { sameAuthorRecent: [...context.sameAuthorRecent] }
+          : {}),
+        ...(context.recentRiskyMessages &&
+        context.recentRiskyMessages.length > 0
+          ? { recentRiskyMessages: [...context.recentRiskyMessages] }
+          : {}),
+        ...(typeof context.conflictLevel === 'number'
+          ? { conflictLevel: context.conflictLevel }
+          : {}),
         ...(flowDebug ? { flow: flowDebug } : {}),
         source: 'local-ai',
         ...(ai.providerId ? { aiProvider: ai.providerId } : {}),
@@ -307,9 +370,13 @@ export default defineContentScript({
         ...(typeof ai.latencyMs === 'number'
           ? { aiLatencyMs: ai.latencyMs }
           : {}),
+        ...(typeof (ai.confidence ?? ai.score) === 'number'
+          ? { aiConfidence: ai.confidence ?? ai.score }
+          : {}),
+        classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
         timestamp: message.timestamp,
       };
-      renderResult(element, result, diagnostic, settings.debugMode);
+      render(result, diagnostic);
       record(diagnostic);
     };
 
@@ -373,9 +440,50 @@ export default defineContentScript({
         recentRiskyMessages: recentRisk.recent(message.timestamp),
         sessionBoost: restriction.boost(author),
       };
+      const submitFeedback = async (
+        diagnostic: DiagnosticEntry,
+        judgement: FeedbackJudgement,
+        correctCategory: DiagnosticEntry['category'],
+      ) => {
+        const entry = createFeedbackEntry({
+          diagnostic,
+          normalizedText: diagnostic.normalizedText ?? normalized,
+          judgement,
+          correctCategory,
+          messageId: message.id,
+          conflictLevel: context.conflictLevel,
+        });
+        const response = (await sendRuntimeMessage({
+          type: 'feedback:add',
+          entry,
+        })) as RuntimeResponse;
+        if (!response.ok) throw new Error(response.error);
+        if ('exactMemory' in response)
+          feedbackLearner.observeMemory(response.exactMemory);
+      };
+      const renderDiagnostic = (
+        result: FilterResult,
+        diagnostic: DiagnosticEntry,
+        aiPending = false,
+      ) => {
+        if (settings.debugMode) {
+          renderResult(element, result, diagnostic, true, aiPending, {
+            onSubmit: (judgement, correctCategory) =>
+              submitFeedback(diagnostic, judgement, correctCategory),
+          });
+          return;
+        }
+        renderResult(element, result, diagnostic, false, aiPending);
+      };
       let base: FilterResult;
       try {
-        base = evaluate(message, settings, learner.lookup(normalized), context);
+        base = evaluate(
+          message,
+          settings,
+          learner.lookup(normalized),
+          context,
+          feedbackLearner.lookupExact(normalized),
+        );
       } catch {
         if (flowStarted) {
           flowMetrics.error();
@@ -468,6 +576,7 @@ export default defineContentScript({
           { ...cached, id: message.id },
           message,
           record,
+          renderDiagnostic,
           context,
           flowDebug,
           requestReason,
@@ -489,10 +598,10 @@ export default defineContentScript({
       const samplerForRequest = auditSampler;
 
       if (!shouldUseLocalAi || !isLocalAiConfigured(settings)) {
-        renderResult(element, base, undefined, settings.debugMode);
-        record({
+        const diagnostic: DiagnosticEntry = {
           id: message.id,
           text: message.text,
+          normalizedText: normalized,
           category: base.categories[0] ?? 'safe',
           score: base.score,
           action: base.action,
@@ -502,10 +611,20 @@ export default defineContentScript({
           ...(typeof base.contextAdjustment === 'number'
             ? { contextAdjustment: base.contextAdjustment }
             : {}),
+          ...(context.sameAuthorRecent.length > 0
+            ? { sameAuthorRecent: [...context.sameAuthorRecent] }
+            : {}),
+          ...(context.recentRiskyMessages.length > 0
+            ? { recentRiskyMessages: [...context.recentRiskyMessages] }
+            : {}),
+          conflictLevel: context.conflictLevel,
           ...(flowDebug ? { flow: flowDebug } : {}),
-          source: base.needsAi ? 'fallback' : 'rules',
+          source: base.source ?? (base.needsAi ? 'fallback' : 'rules'),
+          classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
           timestamp: message.timestamp,
-        });
+        };
+        renderDiagnostic(base, diagnostic);
+        record(diagnostic);
         return;
       }
 
@@ -516,6 +635,7 @@ export default defineContentScript({
         const fallbackEntry: DiagnosticEntry = {
           id: message.id,
           text: message.text,
+          normalizedText: normalized,
           category: base.categories[0] ?? 'safe',
           score: base.score,
           action: base.action,
@@ -531,11 +651,19 @@ export default defineContentScript({
           ...(typeof base.contextAdjustment === 'number'
             ? { contextAdjustment: base.contextAdjustment }
             : {}),
+          ...(context.sameAuthorRecent.length > 0
+            ? { sameAuthorRecent: [...context.sameAuthorRecent] }
+            : {}),
+          ...(context.recentRiskyMessages.length > 0
+            ? { recentRiskyMessages: [...context.recentRiskyMessages] }
+            : {}),
+          conflictLevel: context.conflictLevel,
           ...(flowDebug ? { flow: flowDebug } : {}),
           source: 'fallback',
+          classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
           timestamp: message.timestamp,
         };
-        renderResult(element, base, fallbackEntry, settings.debugMode, true);
+        renderDiagnostic(base, fallbackEntry, true);
         record(fallbackEntry);
       }, settings.lmStudio.timeoutMs);
 
@@ -582,6 +710,7 @@ export default defineContentScript({
             ai,
             message,
             record,
+            renderDiagnostic,
             context,
             flowDebug,
             requestReason,
@@ -601,10 +730,10 @@ export default defineContentScript({
             lmStudio: settings.lmStudio.enabled ? 'unavailable' : 'disabled',
             localAi: { activeProvider: 'rules', status: 'unavailable' },
           });
-          renderResult(element, base, undefined, settings.debugMode);
-          record({
+          const diagnostic: DiagnosticEntry = {
             id: message.id,
             text: message.text,
+            normalizedText: normalized,
             category: base.categories[0] ?? 'safe',
             score: base.score,
             action: base.action,
@@ -620,10 +749,20 @@ export default defineContentScript({
             ...(typeof base.contextAdjustment === 'number'
               ? { contextAdjustment: base.contextAdjustment }
               : {}),
+            ...(context.sameAuthorRecent.length > 0
+              ? { sameAuthorRecent: [...context.sameAuthorRecent] }
+              : {}),
+            ...(context.recentRiskyMessages.length > 0
+              ? { recentRiskyMessages: [...context.recentRiskyMessages] }
+              : {}),
+            conflictLevel: context.conflictLevel,
             ...(flowDebug ? { flow: flowDebug } : {}),
             source: 'fallback',
+            classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
             timestamp: message.timestamp,
-          });
+          };
+          renderDiagnostic(base, diagnostic);
+          record(diagnostic);
         });
     };
 
@@ -715,6 +854,9 @@ export default defineContentScript({
     });
 
     ctx.onInvalidated(() => {
+      feedbackPortDisposed = true;
+      feedbackPort?.disconnect();
+      feedbackPort = undefined;
       processing.reset();
       queue.dispose();
       cache.clear();
