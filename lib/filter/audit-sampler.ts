@@ -1,4 +1,5 @@
 import type { FilterResult, SettingsV1 } from '../types';
+import { resolveLocalAiLoadPolicy } from '../local-ai/load-policy';
 import { isLocalAiConfigured } from '../settings';
 import { matchAuditSignals } from './audit-signals';
 
@@ -91,7 +92,8 @@ export class AuditSampler {
     const now = input.now ?? Date.now();
     const recentCount = this.frequency.observeAndCount(input.normalized, now);
     const signals = matchAuditSignals(input.normalized);
-    let probability = input.settings.lmStudio.zeroScoreAudit.baseProbability;
+    const auditPolicy = resolveLocalAiLoadPolicy(input.settings).zeroScoreAudit;
+    let probability = auditPolicy.baseProbability;
     const reasons = ['ルール未一致'];
 
     if (recentCount === 1) {
@@ -116,9 +118,8 @@ export class AuditSampler {
       (timestamp) => timestamp > now - RATE_WINDOW_MS,
     );
     if (
-      this.auditTimestamps.length >=
-        input.settings.lmStudio.zeroScoreAudit.maxPerMinute ||
-      this.pending >= input.settings.lmStudio.zeroScoreAudit.maxPending
+      this.auditTimestamps.length >= auditPolicy.maxPerMinute ||
+      this.pending >= auditPolicy.maxPending
     ) {
       return {
         eligible: true,

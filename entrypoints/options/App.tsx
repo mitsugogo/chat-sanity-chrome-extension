@@ -986,35 +986,42 @@ export default function App() {
               ) : null}
               {showSharedAi ? (
                 <>
-                  <AiNumber
-                    label="AI応答の待ち時間（秒）"
-                    value={settings.lmStudio.requestTimeoutMs / 1000}
-                    min={1}
-                    max={60}
-                    step={1}
-                    onChange={(value) =>
-                      setSettings((current) => ({
-                        ...current,
-                        lmStudio: {
-                          ...current.lmStudio,
-                          requestTimeoutMs: value * 1000,
-                        },
-                      }))
-                    }
-                  />
-                  <AiNumber
-                    label="1回に送る最大件数"
-                    value={settings.lmStudio.batchSize}
-                    min={1}
-                    max={20}
-                    step={1}
-                    onChange={(value) =>
-                      setSettings((current) => ({
-                        ...current,
-                        lmStudio: { ...current.lmStudio, batchSize: value },
-                      }))
-                    }
-                  />
+                  {showLmStudio ? (
+                    <>
+                      <AiNumber
+                        label="LM Studio応答の待ち時間（秒）"
+                        value={settings.lmStudio.requestTimeoutMs / 1000}
+                        min={1}
+                        max={60}
+                        step={1}
+                        onChange={(value) =>
+                          setSettings((current) => ({
+                            ...current,
+                            lmStudio: {
+                              ...current.lmStudio,
+                              requestTimeoutMs: value * 1000,
+                            },
+                          }))
+                        }
+                      />
+                      <AiNumber
+                        label="LM Studioで1回に送る最大件数"
+                        value={settings.lmStudio.batchSize}
+                        min={1}
+                        max={20}
+                        step={1}
+                        onChange={(value) =>
+                          setSettings((current) => ({
+                            ...current,
+                            lmStudio: {
+                              ...current.lmStudio,
+                              batchSize: value,
+                            },
+                          }))
+                        }
+                      />
+                    </>
+                  ) : null}
                   <div className="ai-condition">
                     <strong>AIの使用条件</strong>
                     <p>
@@ -1053,9 +1060,9 @@ export default function App() {
                       }
                     />
                     <p>
-                      500msでルール結果を表示し、AIの応答が届けば更新します。遅い場合は件数を減らすか待ち時間を延ばしてください。
+                      500msでルール結果を表示し、AIの応答が届けば更新します。
                       {showLmStudio
-                        ? '形式エラーの場合は互換形式を試せます。'
+                        ? '遅い場合はLM Studioの件数を減らすか待ち時間を延ばしてください。形式エラーの場合は互換形式を試せます。'
                         : null}
                     </p>
                   </div>
@@ -1424,7 +1431,9 @@ function DiagnosticResult({
           <dd>{ACTION_LABELS[entry.action]}</dd>
         </div>
       </dl>
-      <p>判定元: {sourceLabel(entry.source, entry.aiReason)}</p>
+      <p>
+        判定元: {sourceLabel(entry.source, entry.aiReason, entry.aiSkipReason)}
+      </p>
       {entry.aiProvider ? (
         <p>
           AI Provider:{' '}
@@ -1825,7 +1834,8 @@ function DebugHistoryPanel({
               </div>
               <p className="debug-history-text">{entry.text}</p>
               <p className="debug-history-reason">
-                {sourceLabel(entry.source)}: {entry.reasons.join('・')}
+                {sourceLabel(entry.source, entry.aiReason, entry.aiSkipReason)}:{' '}
+                {entry.reasons.join('・')}
               </p>
               {entry.aiProvider ? (
                 <p className="debug-history-features">
@@ -1903,13 +1913,19 @@ function FlowMetricsSummary({ metrics }: { metrics: FlowChatMetricsSnapshot }) {
 function sourceLabel(
   source: DiagnosticEntry['source'],
   aiReason?: DiagnosticEntry['aiReason'],
+  aiSkipReason?: DiagnosticEntry['aiSkipReason'],
 ): string {
   if (source === 'local-ai')
     return aiReason === 'zero-score-audit'
       ? 'ローカルAI（Zero-score Audit）'
       : 'ローカルAI';
   if (source === 'human-feedback') return '過去のユーザー訂正';
-  if (source === 'fallback') return 'ルール（AI失敗）';
+  if (source === 'fallback') {
+    if (aiSkipReason === 'overloaded') return 'ルール（AIスキップ: 混雑）';
+    if (aiSkipReason === 'expired') return 'ルール（AIスキップ: 期限切れ）';
+    if (aiSkipReason === 'disposed') return 'ルール（AIスキップ: 設定変更）';
+    return 'ルール（AI失敗）';
+  }
   return 'ルール';
 }
 

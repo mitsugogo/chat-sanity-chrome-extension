@@ -383,6 +383,77 @@ describe('content integration', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(item).not.toHaveClass('chatsanity-hidden', 'chatsanity-pending');
   });
+  it('AI待機列の混雑時は最古コメントをルールへ戻して最新を待機させる', async () => {
+    settings.debugMode = true;
+    settings.lmStudio.batchSize = 1;
+    const first = append('queue-running', '回復した方がいい');
+    await start();
+    expect(requests).toHaveLength(1);
+
+    const oldest = append('queue-oldest', '回復した方がいい');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(oldest).toHaveClass('chatsanity-pending');
+    const latest = append('queue-latest', '回復した方がいい');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(oldest).not.toHaveClass('chatsanity-pending');
+    expect(latest).toHaveClass('chatsanity-pending');
+    expect(requests).toHaveLength(1);
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'debug:add',
+        entry: expect.objectContaining({
+          source: 'fallback',
+          aiSkipReason: 'overloaded',
+          reasons: expect.arrayContaining(['AIスキップ: 混雑']),
+        }),
+      }),
+    );
+
+    resolveRequest(0, 0.4);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(requests).toHaveLength(2);
+    expect(first).not.toHaveClass('chatsanity-pending');
+    expect(latest).toHaveClass('chatsanity-pending');
+    resolveRequest(1, 0.4);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(latest).not.toHaveClass('chatsanity-pending');
+  });
+  it('AI待機期限を超えたコメントは送信せずProvider状態を障害扱いしない', async () => {
+    settings.debugMode = true;
+    settings.lmStudio.batchSize = 1;
+    append('queue-running', '回復した方がいい');
+    await start();
+    expect(requests).toHaveLength(1);
+
+    const expired = append('queue-expired', '回復した方がいい');
+    await vi.advanceTimersByTimeAsync(1_251);
+    expect(expired.querySelector('.chatsanity-ai-status')).toHaveTextContent(
+      'AI検閲中',
+    );
+
+    resolveRequest(0, 0.4);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(requests).toHaveLength(1);
+    expect(expired).not.toHaveClass('chatsanity-pending');
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'debug:add',
+        entry: expect.objectContaining({
+          source: 'fallback',
+          aiSkipReason: 'expired',
+          reasons: expect.arrayContaining(['AIスキップ: 期限切れ']),
+        }),
+      }),
+    );
+    const sessionUpdates = mocks.sendMessage.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message.type === 'session:update');
+    expect(sessionUpdates.at(-1)).toMatchObject({
+      summary: { localAi: { status: 'ready' } },
+    });
+  });
   it('学習済みの同文は追加送信せず設定変更で学習とキャッシュを消す', async () => {
     const first = append('first');
     await start();

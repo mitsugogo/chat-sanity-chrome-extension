@@ -101,9 +101,7 @@ export class LocalAiResolver {
   private candidates(): LocalAiProvider[] {
     if (this.settings.mode === 'disabled') return [];
     const chrome = this.settings.chromeBuiltIn.enabled
-      ? (this.providers['chrome-built-in'] ??= new ChromeBuiltInAiProvider(
-          this.settings.lmStudio.timeoutMs,
-        ))
+      ? (this.providers['chrome-built-in'] ??= new ChromeBuiltInAiProvider())
       : undefined;
     const lm =
       this.settings.lmStudio.enabled && this.settings.lmStudio.model

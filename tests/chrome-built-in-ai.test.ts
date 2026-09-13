@@ -136,6 +136,42 @@ describe('ChromeBuiltInAiProvider', () => {
     expect(batch.destroy).toHaveBeenCalledOnce();
   });
 
+  it('既定設定では500msを超えても推論を中断しない', async () => {
+    vi.useFakeTimers();
+    const { base, batch } = createSessions();
+    let finishPrompt: (value: string) => void = () => undefined;
+    batch.prompt.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          finishPrompt = resolve;
+        }),
+    );
+    vi.stubGlobal('LanguageModel', {
+      availability: vi.fn(async () => 'available'),
+      create: vi.fn(async () => base),
+    });
+    const pending = new ChromeBuiltInAiProvider().classify([
+      { id: 'one', text: 'test' },
+    ]);
+    await vi.advanceTimersByTimeAsync(501);
+
+    expect(batch.destroy).not.toHaveBeenCalled();
+    finishPrompt(
+      JSON.stringify({
+        results: [
+          {
+            id: 'one',
+            category: 'safe',
+            action: 'allow',
+            confidence: 1,
+          },
+        ],
+      }),
+    );
+    await expect(pending).resolves.toHaveLength(1);
+    expect(batch.destroy).toHaveBeenCalledOnce();
+  });
+
   it('AbortErrorならsessionを作り直して1回再試行する', async () => {
     const first = createSessions();
     const second = createSessions();

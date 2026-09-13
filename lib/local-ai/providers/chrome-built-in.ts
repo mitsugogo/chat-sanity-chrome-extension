@@ -5,6 +5,7 @@ import {
   createClassificationSchema,
 } from '../prompt';
 import type { LocalAiAvailability, LocalAiProvider } from '../types';
+import { CHROME_BUILT_IN_MAX_BATCH_SIZE } from '../load-policy';
 import { validateResults } from '../validation';
 
 interface LanguageModelSessionLike {
@@ -36,7 +37,7 @@ interface LanguageModelApiLike {
   ): Promise<LanguageModelSessionLike>;
 }
 
-export const CHROME_BUILT_IN_MAX_BATCH_SIZE = 8;
+export const CHROME_BUILT_IN_INFERENCE_TIMEOUT_MS = 10_000;
 export const MODEL_OPTIONS = {
   expectedInputs: [{ type: 'text', languages: ['en', 'ja'] }],
   expectedOutputs: [{ type: 'text', languages: ['en'] }],
@@ -101,7 +102,9 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
   private baseSessionPromise: Promise<LanguageModelSessionLike> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly timeoutMs = 10_000) {}
+  constructor(
+    private readonly timeoutMs = CHROME_BUILT_IN_INFERENCE_TIMEOUT_MS,
+  ) {}
 
   getAvailability(): Promise<LocalAiAvailability> {
     return getChromeBuiltInAvailability();

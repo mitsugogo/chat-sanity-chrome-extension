@@ -1,6 +1,9 @@
 import { browser } from 'wxt/browser';
 import '../styles/content.css';
-import { ClassificationBatchQueue } from '../lib/batch-queue';
+import {
+  AiQueueFallbackError,
+  ClassificationBatchQueue,
+} from '../lib/batch-queue';
 import {
   AuthorHistory,
   ConflictScoreTracker,
@@ -24,6 +27,7 @@ import {
 import { CATEGORY_LABELS } from '../lib/settings';
 import { isLocalAiConfigured } from '../lib/settings';
 import { CLASSIFIER_PROMPT_VERSION } from '../lib/local-ai/prompt';
+import { resolveLocalAiLoadPolicy } from '../lib/local-ai/load-policy';
 import { loadSettings, saveSettings, subscribeSettings } from '../lib/storage';
 import { addHiddenUser } from '../lib/user-lists';
 import { AuthorRestrictionTracker } from '../lib/filter/author-restriction';
@@ -67,6 +71,11 @@ import { FlowChatMetrics } from '../lib/integrations/flow-chat/metrics';
 
 const CLASSIFICATION_CACHE_TTL_MS = 10 * 60_000;
 const AUDIT_FAILURE_COOLDOWN_MS = 30_000;
+const AI_QUEUE_SKIP_LABELS = {
+  overloaded: '混雑',
+  expired: '期限切れ',
+  disposed: '設定変更',
+} as const;
 
 export default defineContentScript({
   matches: [
@@ -182,7 +191,7 @@ export default defineContentScript({
     };
 
     const createQueue = () => {
-      const aiSettings = { ...settings.lmStudio };
+      const loadPolicy = resolveLocalAiLoadPolicy(settings);
       const classify = async (items: LmClassificationItem[]) => {
         const response = (await browser.runtime.sendMessage({
           type: 'local-ai:classify',
@@ -203,11 +212,12 @@ export default defineContentScript({
           latencyMs: response.latencyMs,
         }));
       };
-      return new ClassificationBatchQueue(
-        classify,
-        aiSettings.batchWindowMs,
-        aiSettings.batchSize,
-      );
+      return new ClassificationBatchQueue(classify, {
+        windowMs: settings.lmStudio.batchWindowMs,
+        maxBatchSize: loadPolicy.maxBatchSize,
+        maxPendingBatches: loadPolicy.maxPendingBatches,
+        maxQueueAgeMs: loadPolicy.maxQueueAgeMs,
+      });
     };
     let queue = createQueue();
 
@@ -265,7 +275,9 @@ export default defineContentScript({
     ) => {
       if (
         settings.debugMode &&
-        (entry.action !== 'allow' || entry.aiReason === 'zero-score-audit')
+        (entry.action !== 'allow' ||
+          entry.aiReason === 'zero-score-audit' ||
+          Boolean(entry.aiSkipReason))
       ) {
         void sendRuntimeMessage({ type: 'debug:add', entry }).catch(
           () => undefined,
@@ -720,16 +732,24 @@ export default defineContentScript({
         .catch((error: unknown) => {
           settled = true;
           clearTimeout(fallbackTimer);
+          const queueFallback =
+            error instanceof AiQueueFallbackError ? error : undefined;
           if (requestReason === 'zero-score-audit') {
             samplerForRequest.complete();
-            auditCooldownUntil = Date.now() + AUDIT_FAILURE_COOLDOWN_MS;
+            if (!queueFallback)
+              auditCooldownUntil = Date.now() + AUDIT_FAILURE_COOLDOWN_MS;
           }
           if (!processing.isCurrent(token)) return;
-          updateSummary({
-            ...summary,
-            lmStudio: settings.lmStudio.enabled ? 'unavailable' : 'disabled',
-            localAi: { activeProvider: 'rules', status: 'unavailable' },
-          });
+          if (!queueFallback) {
+            updateSummary({
+              ...summary,
+              lmStudio: settings.lmStudio.enabled ? 'unavailable' : 'disabled',
+              localAi: { activeProvider: 'rules', status: 'unavailable' },
+            });
+          }
+          const fallbackReason = queueFallback
+            ? `AIスキップ: ${AI_QUEUE_SKIP_LABELS[queueFallback.reason]}`
+            : `ローカルAIを利用できないためルール判定を使用${error instanceof Error && error.message ? `: ${error.message}` : ''}`;
           const diagnostic: DiagnosticEntry = {
             id: message.id,
             text: message.text,
@@ -742,7 +762,7 @@ export default defineContentScript({
               ...(requestReason === 'zero-score-audit'
                 ? ['Zero-score Audit', ...(auditDecision?.reasons ?? [])]
                 : []),
-              `ローカルAIを利用できないためルール判定を使用${error instanceof Error && error.message ? `: ${error.message}` : ''}`,
+              fallbackReason,
             ],
             ...(base.ruleIds ? { ruleIds: base.ruleIds } : {}),
             ...(base.features ? { features: base.features } : {}),
@@ -758,6 +778,7 @@ export default defineContentScript({
             conflictLevel: context.conflictLevel,
             ...(flowDebug ? { flow: flowDebug } : {}),
             source: 'fallback',
+            ...(queueFallback ? { aiSkipReason: queueFallback.reason } : {}),
             classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
             timestamp: message.timestamp,
           };

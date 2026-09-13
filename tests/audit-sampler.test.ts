@@ -5,6 +5,7 @@ import type { FilterResult, RuleDisposition } from '../lib/types';
 
 function settings() {
   const value = structuredClone(DEFAULT_SETTINGS);
+  value.localAiMode = 'lm-studio';
   value.lmStudio.enabled = true;
   value.lmStudio.model = 'local';
   return value;
@@ -121,5 +122,27 @@ describe('AuditSampler', () => {
     expect(evaluate('二件目').shouldAudit).toBe(false);
     sampler.complete();
     expect(evaluate('三件目').shouldAudit).toBe(true);
+  });
+
+  it('Chrome優先時は1分3件・同時2件の実効上限を使う', () => {
+    const value = settings();
+    value.localAiMode = 'auto';
+    value.chromeBuiltIn.enabled = true;
+    const sampler = new AuditSampler(() => 0);
+    const evaluate = (normalized: string, now: number) =>
+      sampler.evaluate({
+        normalized,
+        base: base('unmatched'),
+        settings: value,
+        now,
+      });
+
+    expect(evaluate('一件目', 1_000).shouldAudit).toBe(true);
+    expect(evaluate('二件目', 1_001).shouldAudit).toBe(true);
+    expect(evaluate('三件目', 1_002).shouldAudit).toBe(false);
+    sampler.complete();
+    expect(evaluate('四件目', 1_003).shouldAudit).toBe(true);
+    sampler.complete();
+    expect(evaluate('五件目', 1_004).shouldAudit).toBe(false);
   });
 });

@@ -245,7 +245,7 @@ it('AI失敗の診断はルール結果と失敗理由を表示する', async ()
   );
 });
 
-it('Chrome内蔵AIではLM Studio専用項目を出さず共通設定だけ出す', async () => {
+it('Chrome内蔵AIではLM Studio専用項目を出さない', async () => {
   render(<App />);
   await screen.findByRole('heading', { name: 'ローカルAI設定' });
   fireEvent.click(screen.getByLabelText('Chrome 内蔵AI'));
@@ -256,8 +256,12 @@ it('Chrome内蔵AIではLM Studio専用項目を出さず共通設定だけ出�
   expect(
     screen.queryByRole('button', { name: '接続を確認' }),
   ).not.toBeInTheDocument();
-  expect(screen.getByLabelText('AI応答の待ち時間（秒）')).toBeInTheDocument();
-  expect(screen.getByLabelText('1回に送る最大件数')).toBeInTheDocument();
+  expect(
+    screen.queryByLabelText('LM Studio応答の待ち時間（秒）'),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByLabelText('LM Studioで1回に送る最大件数'),
+  ).not.toBeInTheDocument();
   expect(
     screen.getByLabelText('未判定コメントをときどきAIで再確認'),
   ).toBeInTheDocument();
@@ -273,6 +277,12 @@ it('LM StudioからChrome内蔵AIへ切り替えると接続設定を隠す', as
   expect(await screen.findByLabelText('エンドポイント')).toBeInTheDocument();
   expect(screen.getByLabelText('モデル')).toBeInTheDocument();
   expect(screen.getByLabelText('AI応答形式')).toBeInTheDocument();
+  expect(
+    screen.getByLabelText('LM Studio応答の待ち時間（秒）'),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByLabelText('LM Studioで1回に送る最大件数'),
+  ).toBeInTheDocument();
   expect(screen.queryByLabelText('Chrome内蔵AIの状態')).not.toBeInTheDocument();
   expect(
     screen.getByText(/形式エラーの場合は互換形式を試せます/),
