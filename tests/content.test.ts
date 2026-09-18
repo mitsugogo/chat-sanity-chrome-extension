@@ -80,8 +80,14 @@ afterEach(() => {
   document.body.innerHTML = '';
   vi.restoreAllMocks();
 });
-function append(id: string, text = '回復した方がいい') {
-  const element = document.createElement('yt-live-chat-text-message-renderer');
+function append(
+  id: string,
+  text = '回復した方がいい',
+  tagName:
+    | 'yt-live-chat-text-message-renderer'
+    | 'yt-live-chat-paid-message-renderer' = 'yt-live-chat-text-message-renderer',
+) {
+  const element = document.createElement(tagName);
   element.id = id;
   const author = document.createElement('span');
   author.id = 'author-name';
@@ -221,7 +227,7 @@ describe('content integration', () => {
     expect(item).toHaveClass('ylcfr-filtered-message');
   });
 
-  it('遅れて届くAI結果はFlow Chatの確定済み除外を変更しない', async () => {
+  it('遅れて届くAI判定がぼかしになったらFlow Chatから除外する', async () => {
     settings.flowChat.enabled = true;
     const item = append('flow-late-ai');
     await start();
@@ -229,11 +235,11 @@ describe('content integration', () => {
     expect(item).not.toHaveClass('ylcfr-deleted-message');
 
     await vi.advanceTimersByTimeAsync(200);
-    resolveRequest(0, 0.95);
+    resolveRequest(0, 0.8);
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(item).toHaveClass('chatsanity-hidden');
-    expect(item).not.toHaveClass('ylcfr-deleted-message');
+    expect(item).toHaveClass('chatsanity-blur');
+    expect(item).toHaveClass('ylcfr-filtered-message', 'ylcfr-deleted-message');
   });
 
   it('デバッグ時はスコアを表示して対応理由を履歴へ送る', async () => {
@@ -289,6 +295,57 @@ describe('content integration', () => {
           correctCategory: 'blame',
         }),
       }),
+    );
+  });
+
+  it('モデレーター・本人・スーパーチャットは判定せずNGボタンも表示しない', async () => {
+    settings.debugMode = true;
+    settings.lmStudio.zeroScoreAudit.checkAllUnmatched = true;
+    const moderator = append('excluded-moderator', '死ね');
+    moderator.querySelector('#author-name')?.setAttribute('is-moderator', '');
+    const self = append('excluded-self', '死ね');
+    self.setAttribute('is-highlighted', '');
+    const paid = append(
+      'excluded-paid',
+      '死ね',
+      'yt-live-chat-paid-message-renderer',
+    );
+
+    await start();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(requests).toHaveLength(0);
+    for (const item of [moderator, self, paid]) {
+      expect(item).toHaveAttribute('data-chatsanity-action', 'allow');
+      expect(item).not.toHaveClass('chatsanity-pending', 'chatsanity-hidden');
+      expect(
+        Array.from(item.querySelectorAll('button')).some(
+          (button) => button.textContent === 'NG',
+        ),
+      ).toBe(false);
+    }
+    expect(moderator).toHaveClass(
+      'chatsanity-moderator-sticky',
+      'chatsanity-moderator-sticky-latest',
+    );
+    expect(self).not.toHaveClass('chatsanity-moderator-sticky');
+    expect(paid).not.toHaveClass('chatsanity-moderator-sticky');
+  });
+
+  it('複数のモデレーター投稿では最後の投稿を前面にする', async () => {
+    settings.lmStudio.enabled = false;
+    const first = append('moderator-first', '最初のお知らせ');
+    first.querySelector('#author-name')?.setAttribute('is-moderator', '');
+    const latest = append('moderator-latest', '最新のお知らせ');
+    latest.querySelector('#author-name')?.setAttribute('is-moderator', '');
+
+    await start();
+
+    expect(first).toHaveClass('chatsanity-moderator-sticky');
+    expect(first).not.toHaveClass('chatsanity-moderator-sticky-latest');
+    expect(latest).toHaveClass(
+      'chatsanity-moderator-sticky',
+      'chatsanity-moderator-sticky-latest',
     );
   });
 
@@ -531,6 +588,20 @@ describe('content integration', () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(requests).toHaveLength(0);
     expect(item).not.toHaveClass('chatsanity-pending', 'chatsanity-hidden');
+  });
+
+  it('全件AIチェックでは抽選から外れる0点のルール未一致も監査する', async () => {
+    settings.lmStudio.zeroScoreAudit.checkAllUnmatched = true;
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    const item = append('audit-all', '未知の本文です');
+    await start();
+
+    expect(item).toHaveClass('chatsanity-pending');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.request.items).toEqual([
+      expect.objectContaining({ text: '未知の本文です' }),
+    ]);
   });
 
   it('許可語句に一致した0点コメントは監査しない', async () => {

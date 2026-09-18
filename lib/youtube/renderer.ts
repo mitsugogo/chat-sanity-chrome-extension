@@ -13,6 +13,8 @@ const MANAGED_CLASSES = [
   'chatsanity-hidden',
   'chatsanity-revealed',
 ];
+const MODERATOR_STICKY_CLASS = 'chatsanity-moderator-sticky';
+const LATEST_MODERATOR_STICKY_CLASS = 'chatsanity-moderator-sticky-latest';
 const REVEAL_HANDLERS = new WeakMap<HTMLElement, () => void>();
 let feedbackControlSequence = 0;
 
@@ -21,6 +23,45 @@ export interface InlineFeedbackHandlers {
     judgement: FeedbackJudgement,
     correctCategory: FilterCategory,
   ) => Promise<void>;
+}
+
+export function renderModeratorSticky(
+  element: HTMLElement,
+  isModerator: boolean,
+): void {
+  const wasSticky = element.classList.contains(MODERATOR_STICKY_CLASS);
+  if (isModerator) {
+    element.classList.add(MODERATOR_STICKY_CLASS);
+  } else if (wasSticky) {
+    element.classList.remove(
+      MODERATOR_STICKY_CLASS,
+      LATEST_MODERATOR_STICKY_CLASS,
+    );
+  } else {
+    return;
+  }
+  refreshLatestModeratorSticky(element.ownerDocument);
+}
+
+export function refreshLatestModeratorSticky(doc: Document = document): void {
+  const stickyItems = Array.from(
+    doc.querySelectorAll<HTMLElement>(`.${MODERATOR_STICKY_CLASS}`),
+  );
+  for (const item of stickyItems) {
+    item.classList.remove(LATEST_MODERATOR_STICKY_CLASS);
+  }
+  stickyItems.at(-1)?.classList.add(LATEST_MODERATOR_STICKY_CLASS);
+}
+
+export function clearModeratorSticky(doc: Document = document): void {
+  doc
+    .querySelectorAll<HTMLElement>(`.${MODERATOR_STICKY_CLASS}`)
+    .forEach((item) => {
+      item.classList.remove(
+        MODERATOR_STICKY_CLASS,
+        LATEST_MODERATOR_STICKY_CLASS,
+      );
+    });
 }
 
 export function resetRenderedItem(element: HTMLElement): void {

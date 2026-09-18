@@ -106,10 +106,12 @@ describe('options', () => {
     expect(screen.queryByLabelText('エンドポイント')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('モデル')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('AI応答形式')).not.toBeInTheDocument();
-    const auditSwitch =
-      screen.getByLabelText('未判定コメントをときどきAIで再確認');
+    const auditSwitch = screen.getByLabelText('未判定コメントをAIで再確認');
     expect(auditSwitch).toBeChecked();
-    fireEvent.click(auditSwitch);
+    const allUnmatchedSwitch =
+      screen.getByLabelText('ルール未一致をすべてAIで確認');
+    expect(allUnmatchedSwitch).not.toBeChecked();
+    fireEvent.click(allUnmatchedSwitch);
     fireEvent.change(screen.getByLabelText('指示・指示厨の重み'), {
       target: { value: '0.9' },
     });
@@ -118,7 +120,10 @@ describe('options', () => {
     expect(mocks.set).toHaveBeenCalledWith({
       settings: expect.objectContaining({
         lmStudio: expect.objectContaining({
-          zeroScoreAudit: expect.objectContaining({ enabled: false }),
+          zeroScoreAudit: expect.objectContaining({
+            enabled: true,
+            checkAllUnmatched: true,
+          }),
         }),
       }),
     });
@@ -263,7 +268,7 @@ it('Chrome内蔵AIではLM Studio専用項目を出さない', async () => {
     screen.queryByLabelText('LM Studioで1回に送る最大件数'),
   ).not.toBeInTheDocument();
   expect(
-    screen.getByLabelText('未判定コメントをときどきAIで再確認'),
+    screen.getByLabelText('未判定コメントをAIで再確認'),
   ).toBeInTheDocument();
   expect(
     screen.queryByText(/形式エラーの場合は互換形式を試せます/),
@@ -329,6 +334,6 @@ it('使用しないを選ぶとAI設定を隠す', async () => {
     screen.queryByLabelText('AI応答の待ち時間（秒）'),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByLabelText('未判定コメントをときどきAIで再確認'),
+    screen.queryByLabelText('未判定コメントをAIで再確認'),
   ).not.toBeInTheDocument();
 });

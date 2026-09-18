@@ -48,6 +48,7 @@ describe('resolveLocalAiLoadPolicy', () => {
     settings.localAiMode = 'chrome-built-in';
     settings.lmStudio.zeroScoreAudit = {
       enabled: true,
+      checkAllUnmatched: false,
       baseProbability: 0.005,
       maxPerMinute: 1,
       maxPending: 1,

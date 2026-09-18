@@ -51,6 +51,20 @@ describe('FlowChatBridge', () => {
     expect(guard.finalizeAllowed()).toBe(false);
   });
 
+  it('確定後に届いた除外判定で流れている要素へdeletedを追加する', () => {
+    const bridge = new FlowChatBridge(document);
+    bridge.activate();
+    const element = document.createElement('div');
+    bridge.finalizeAllowed(element);
+
+    expect(bridge.excludeFinalized(element)).toBe(true);
+    expect(element).toHaveClass(
+      FLOW_CHAT_CLASSES.filtered,
+      FLOW_CHAT_CLASSES.deleted,
+    );
+    expect(bridge.excludeFinalized(element)).toBe(false);
+  });
+
   it('deadlineでfail-openしpendingを残さない', () => {
     vi.useFakeTimers();
     const timeout = vi.fn();

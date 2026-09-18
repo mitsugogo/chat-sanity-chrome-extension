@@ -45,7 +45,7 @@ describe('filter engine', () => {
     expect(result).toMatchObject({
       score: 0,
       action: 'allow',
-      ruleDisposition: 'explicit-safe',
+      ruleDisposition: 'excluded',
     });
     expect(result.reasons).toContain('自分の投稿');
   });
@@ -144,6 +144,21 @@ describe('filter engine', () => {
     expect(
       evaluate(createMessage('死ね', { isModerator: true }), settings()),
     ).toMatchObject({ action: 'allow', ruleDisposition: 'excluded' });
+  });
+
+  it('スーパーチャットを判定対象外にする', () => {
+    const result = createFilterEngine()(
+      createMessage('死ね', { isPaidMessage: true }),
+      settings(),
+    );
+
+    expect(result).toMatchObject({
+      score: 0,
+      action: 'allow',
+      needsAi: false,
+      ruleDisposition: 'excluded',
+      reasons: ['スーパーチャット'],
+    });
   });
 
   it('許可語句をブロック語句より優先する', () => {

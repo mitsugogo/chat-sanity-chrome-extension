@@ -90,6 +90,15 @@ export class AuditSampler {
     }
 
     const now = input.now ?? Date.now();
+    if (input.settings.lmStudio.zeroScoreAudit.checkAllUnmatched) {
+      return {
+        eligible: true,
+        shouldAudit: true,
+        probability: 1,
+        reasons: ['ルール未一致', '全件AIチェック設定'],
+      };
+    }
+
     const recentCount = this.frequency.observeAndCount(input.normalized, now);
     const signals = matchAuditSignals(input.normalized);
     const auditPolicy = resolveLocalAiLoadPolicy(input.settings).zeroScoreAudit;

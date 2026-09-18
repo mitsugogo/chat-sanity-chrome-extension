@@ -51,6 +51,33 @@ describe('AuditSampler', () => {
     );
   });
 
+  it('全件AIチェックでは抽選と監査上限を適用しない', () => {
+    const value = settings();
+    value.lmStudio.zeroScoreAudit.checkAllUnmatched = true;
+    value.lmStudio.zeroScoreAudit.maxPerMinute = 1;
+    value.lmStudio.zeroScoreAudit.maxPending = 1;
+    const sampler = new AuditSampler(() => 0.99);
+
+    const decisions = [0, 1, 2].map((index) =>
+      sampler.evaluate({
+        normalized: `未知の本文${index}`,
+        base: base('unmatched'),
+        settings: value,
+        now: 1_000 + index,
+      }),
+    );
+
+    expect(decisions.map((decision) => decision.shouldAudit)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(decisions[0]).toMatchObject({
+      probability: 1,
+      reasons: ['ルール未一致', '全件AIチェック設定'],
+    });
+  });
+
   it('弱いシグナルで監査確率を上げるが最大0.5に制限する', () => {
     const sampler = new AuditSampler(() => 0.99);
     const plain = sampler.evaluate({

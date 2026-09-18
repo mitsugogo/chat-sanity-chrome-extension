@@ -151,6 +151,7 @@ export interface LmStudioSettings {
   sessionLearning: boolean;
   zeroScoreAudit: {
     enabled: boolean;
+    checkAllUnmatched: boolean;
     baseProbability: number;
     maxPerMinute: number;
     maxPending: number;

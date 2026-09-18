@@ -56,15 +56,29 @@ export function createFilterEngine() {
     const profile = settings.profiles[settings.activePreset];
     const text = normalizeText(message.text);
 
-    if (!settings.enabled || message.isOwner || message.isModerator) {
+    if (!settings.enabled) {
       return result(0, [], ['フィルター対象外'], 'allow', false, 'excluded');
     }
 
-    if (message.isSelf || isWhitelistedUser(settings, message)) {
+    if (
+      message.isOwner ||
+      message.isModerator ||
+      message.isSelf ||
+      message.isPaidMessage
+    ) {
+      const reason = message.isPaidMessage
+        ? 'スーパーチャット'
+        : message.isSelf
+          ? '自分の投稿'
+          : 'フィルター対象外';
+      return result(0, [], [reason], 'allow', false, 'excluded');
+    }
+
+    if (isWhitelistedUser(settings, message)) {
       return result(
         0,
         ['safe'],
-        [message.isSelf ? '自分の投稿' : 'ホワイトリストのユーザー'],
+        ['ホワイトリストのユーザー'],
         'allow',
         false,
         'explicit-safe',

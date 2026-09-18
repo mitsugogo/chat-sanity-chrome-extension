@@ -5,7 +5,13 @@ import {
   parseChatMessage,
 } from '../lib/youtube/adapter';
 import { ChatProcessingTracker } from '../lib/youtube/processing-tracker';
-import { renderPending, renderResult } from '../lib/youtube/renderer';
+import {
+  clearModeratorSticky,
+  refreshLatestModeratorSticky,
+  renderModeratorSticky,
+  renderPending,
+  renderResult,
+} from '../lib/youtube/renderer';
 
 function createChatItem() {
   const root = document.createElement('div');
@@ -152,6 +158,49 @@ describe('YouTube adapter', () => {
 });
 
 describe('YouTube renderer', () => {
+  it('モデレーター投稿をsticky化し最後の投稿だけを前面にする', () => {
+    const first = findChatItems(createChatItem())[0]!;
+    const second = findChatItems(createChatItem())[0]!;
+    document.body.append(first, second);
+
+    renderModeratorSticky(first, true);
+    expect(first).toHaveClass(
+      'chatsanity-moderator-sticky',
+      'chatsanity-moderator-sticky-latest',
+    );
+
+    renderModeratorSticky(second, true);
+    expect(first).toHaveClass('chatsanity-moderator-sticky');
+    expect(first).not.toHaveClass('chatsanity-moderator-sticky-latest');
+    expect(second).toHaveClass(
+      'chatsanity-moderator-sticky',
+      'chatsanity-moderator-sticky-latest',
+    );
+
+    second.remove();
+    refreshLatestModeratorSticky();
+    expect(first).toHaveClass('chatsanity-moderator-sticky-latest');
+
+    renderModeratorSticky(first, false);
+    expect(first).not.toHaveClass(
+      'chatsanity-moderator-sticky',
+      'chatsanity-moderator-sticky-latest',
+    );
+  });
+
+  it('終了時にモデレーター投稿のsticky表示を解除する', () => {
+    const item = findChatItems(createChatItem())[0]!;
+    document.body.append(item);
+    renderModeratorSticky(item, true);
+
+    clearModeratorSticky();
+
+    expect(item).not.toHaveClass(
+      'chatsanity-moderator-sticky',
+      'chatsanity-moderator-sticky-latest',
+    );
+  });
+
   it('判定中表示から行全体のぼかしへ更新し原文を一時表示できる', () => {
     const item = findChatItems(createChatItem())[0]!;
     renderPending(item);

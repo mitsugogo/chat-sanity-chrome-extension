@@ -1068,13 +1068,13 @@ export default function App() {
                   </div>
                   <div className="setting-row">
                     <span>
-                      <strong>未判定コメントをときどきAIで再確認</strong>
+                      <strong>未判定コメントをAIで再確認</strong>
                       <small>
-                        ルールに一致しない0点コメントの一部だけを監査します
+                        ルールに一致しない0点コメントを通常は一部だけ監査します
                       </small>
                     </span>
                     <Switch
-                      label="未判定コメントをときどきAIで再確認"
+                      label="未判定コメントをAIで再確認"
                       checked={settings.lmStudio.zeroScoreAudit.enabled}
                       onChange={(enabled) =>
                         setSettings((current) => ({
@@ -1084,6 +1084,33 @@ export default function App() {
                             zeroScoreAudit: {
                               ...current.lmStudio.zeroScoreAudit,
                               enabled,
+                            },
+                          },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="setting-row">
+                    <span>
+                      <strong>ルール未一致をすべてAIで確認</strong>
+                      <small>
+                        抽選と監査上限を使わず全件を送ります。混雑時は古い待機コメントをルール判定へ戻します
+                      </small>
+                    </span>
+                    <Switch
+                      label="ルール未一致をすべてAIで確認"
+                      checked={
+                        settings.lmStudio.zeroScoreAudit.checkAllUnmatched
+                      }
+                      disabled={!settings.lmStudio.zeroScoreAudit.enabled}
+                      onChange={(checkAllUnmatched) =>
+                        setSettings((current) => ({
+                          ...current,
+                          lmStudio: {
+                            ...current.lmStudio,
+                            zeroScoreAudit: {
+                              ...current.lmStudio.zeroScoreAudit,
+                              checkAllUnmatched,
                             },
                           },
                         }))

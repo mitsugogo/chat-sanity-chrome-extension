@@ -127,6 +127,7 @@ export const DEFAULT_SETTINGS: SettingsV1 = {
     sessionLearning: true,
     zeroScoreAudit: {
       enabled: true,
+      checkAllUnmatched: false,
       baseProbability: 0.03,
       maxPerMinute: 12,
       maxPending: 20,
@@ -390,6 +391,10 @@ export function normalizeLmStudio(
         typeof value?.zeroScoreAudit?.enabled === 'boolean'
           ? value.zeroScoreAudit.enabled
           : defaults.zeroScoreAudit.enabled,
+      checkAllUnmatched:
+        typeof value?.zeroScoreAudit?.checkAllUnmatched === 'boolean'
+          ? value.zeroScoreAudit.checkAllUnmatched
+          : defaults.zeroScoreAudit.checkAllUnmatched,
       baseProbability: finiteClamp(
         value?.zeroScoreAudit?.baseProbability,
         defaults.zeroScoreAudit.baseProbability,

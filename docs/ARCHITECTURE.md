@@ -11,7 +11,7 @@ YouTube chat DOM
   -> Human Feedback Exact Memory (only reliable normalized-text consensus)
   -> Feature Extraction / Rule Scoring
   -> Context Modifier / Spam Detector / Session author boost
-  -> ambiguous or sampled unmatched: Service Worker -> LocalAiResolver
+  -> ambiguous or sampled/all unmatched: Service Worker -> LocalAiResolver
        -> Chrome Built-in AI -> LM Studio -> Rules
   -> action selection
   -> Renderer (YouTube標準チャット)
@@ -21,7 +21,7 @@ YouTube chat DOM
 
 Content ScriptはYouTubeのチャットフレームで新着ノードを監視し、AdapterがDOMを`ChatMessage`へ変換します。Normalizer以降はDOMから独立したデータを扱います。
 
-明らかなリアクションはSafe Fast Pathで終了し、それ以外は対象検出、命令形、責任追及、能力攻撃、比較、meta conflict、配信不満、安全文脈をfeature単位で抽出してRuleScoreへ集約します。ルール結果には`excluded`、`explicit-safe`、`matched`、`unmatched`のDispositionを付けます。ルールだけで結果が確定するコメントは即時にRendererへ渡します。曖昧域のコメントと、`unmatched`かつ0点からZero-score Auditに抽選されたコメントは、一時IDと正規化済み本文に、同一投稿者の直近リスク投稿・直近のリスク投稿・対立度だけを加えてService Workerへ送り、Local AI Providerの構造化結果とルール結果を合成します。投稿者名、チャンネル情報、DOM、メンバー状態は送信しません。
+配信者・モデレーター・自分の投稿・スーパーチャットは`excluded`としてルール判定、AI送信、インラインフィードバックの対象外にします。明らかなリアクションはSafe Fast Pathで終了し、それ以外は対象検出、命令形、責任追及、能力攻撃、比較、meta conflict、配信不満、安全文脈をfeature単位で抽出してRuleScoreへ集約します。ルール結果には`excluded`、`explicit-safe`、`matched`、`unmatched`のDispositionを付けます。ルールだけで結果が確定するコメントは即時にRendererへ渡します。曖昧域のコメントと、`unmatched`かつ0点からZero-score Auditに選ばれたコメントは、一時IDと正規化済み本文に、同一投稿者の直近リスク投稿・直近のリスク投稿・対立度だけを加えてService Workerへ送り、Local AI Providerの構造化結果とルール結果を合成します。Zero-score Auditは通常の抽選に加え、明示設定時だけ全件を選べます。投稿者名、チャンネル情報、DOM、メンバー状態は送信しません。
 
 ## 責務の境界
 
@@ -51,19 +51,19 @@ Content ScriptはYouTubeのチャットフレームで新着ノードを監視�
 
 ポップアップ表示用の件数と接続状態だけは、Service Workerの休止をまたいで参照できるよう`chrome.storage.session`へ一時保存します。コメント本文や判定理由は含めず、タブの読み込み直し・終了時に削除します。
 
-Flow Chat連携を有効にした場合だけ、Content Scriptが`html.ylcfr-active`を付けます。`#items`直下でFlow Chatが観測し得る要素は、ルール・文脈判定または解析対象外の即時許可で、700〜800msの締切より前に必ず`ylcfr-filtered-message`へ確定します。除外する要素は`ylcfr-deleted-message`を先に付けます。Flow Chatが未導入でもクラスは無害で、通常のYouTube表示判定とは独立しています。遅れて届くLM Studio結果はYouTubeの表示だけを更新し、確定済みのFlow Chat結果へ再適用しません。メトリクスはデバッグモード中だけフレーム単位のメモリへ送り、Service Workerでは集計値だけを保持します。
+Flow Chat連携を有効にした場合だけ、Content Scriptが`html.ylcfr-active`を付けます。`#items`直下でFlow Chatが観測し得る要素は、ルール・文脈判定または解析対象外の即時許可で、700〜800msの締切より前に必ず`ylcfr-filtered-message`へ確定します。除外する要素は`ylcfr-deleted-message`を先に付けます。Flow Chatが未導入でもクラスは無害で、通常のYouTube表示判定とは独立しています。遅れて届くローカルAI結果がFlow Chatの除外基準へ上がった場合は、待機を再開せず、確定済み要素へ`ylcfr-deleted-message`を追加して流れている表示から除外します。安全側へ下がった結果では、一度除外した表示を再流入させません。メトリクスはデバッグモード中だけフレーム単位のメモリへ送り、Service Workerでは集計値だけを保持します。
 
 ## 失敗時の設計
 
 Local AIは補助判定であり、必須依存ではありません。Prompt API不存在、モデル未準備、session作成失敗、Abort・Quotaエラー、LM Studioの権限拒否・未起動・HTTPエラー、timeout、不正JSON、非対応レスポンスのいずれでもルール結果へ戻ります。Auto modeではChrome内蔵AI、LM Studio、ルールの順にfallbackし、同じProviderが3回連続で失敗すると30秒間そのProviderを停止します。AI待機によってYouTubeチャット全体を停止させてはいけません。
 
-RendererはYouTubeの元ノードを削除しません。属性とCSSで表示を制御するため、フィルター解除やユーザー操作による原文復元が可能です。`ぼかし`は本文だけ、`非表示`は同じぼかしをアイコンと発言者IDまで広げます。
+RendererはYouTubeの元ノードを削除しません。属性とCSSで表示を制御するため、フィルター解除やユーザー操作による原文復元が可能です。`ぼかし`は本文だけ、`非表示`は同じぼかしをアイコンと発言者IDまで広げます。モデレーター投稿には元ノードのままsticky表示を付け、DOM上で最後の投稿を最前面にします。背景色はYouTubeのテーマ用CSS変数を使用し、ライト／ダークテーマに追従します。
 
 Flow Chat側の連携クラスは`lib/integrations/flow-chat/constants.ts`へ隔離しています。現行の公開DOM契約（`ylcfr-active`、`ylcfr-filtered-message`、`ylcfr-deleted-message`）に依存するため、Flow Chat更新時はこのファイルとプロトコルテストを確認します。
 
 ## AI補助判定と一時学習
 
-通常のAI対象は設定で狭められる0.35〜0.80の曖昧域です。これに加え、Local AIとZero-score Auditが有効な場合だけ、`unmatched`かつ0点の一部を監査します。LM Studio単独では基礎確率3%・12件/分・同時20件を既定とし、Chrome内蔵AIを優先する構成では基礎確率1%・3件/分・同時2件を上限にします。10秒内の本文頻度、弱い監査シグナル、対立度を加味し、最終確率は最大50%です。監査はContent Scriptで行い、ルールスコアへは影響しません。無効化・配信者／モデレーター／自分／ホワイトリスト除外、許可語句、ブロック語句、非表示ユーザー、カテゴリルール、スパム、セッション加重の順序を維持します。同一セッションでぼかし・非表示が続いた投稿者は後続コメントのスコアを上げ、閾値に達したチャンネルIDだけを非表示ユーザーへ記録します。AI結果にもカテゴリの有効状態と重みを適用し、スパム判定はAIで打ち消しません。診断プレビューも共通の`mergeAiResult`を使用します。
+通常のAI対象は設定で狭められる0.35〜0.80の曖昧域です。これに加え、Local AIとZero-score Auditが有効な場合だけ、`unmatched`かつ0点を監査候補にします。通常はLM Studio単独で基礎確率3%・12件/分・同時20件を既定とし、Chrome内蔵AIを優先する構成では基礎確率1%・3件/分・同時2件を上限にします。10秒内の本文頻度、弱い監査シグナル、対立度を加味し、最終確率は最大50%です。`checkAllUnmatched`を有効にした場合は抽選・毎分上限・監査同時数を適用せず、すべての監査候補をAIキューへ渡します。ただしキュー自体のバッチ数・待機数・待機時間によるload sheddingは維持します。監査はContent Scriptで行い、ルールスコアへは影響しません。無効化・配信者／モデレーター／自分／スーパーチャット／ホワイトリスト除外、許可語句、ブロック語句、非表示ユーザー、カテゴリルール、スパム、セッション加重の順序を維持します。同一セッションでぼかし・非表示が続いた投稿者は後続コメントのスコアを上げ、閾値に達したチャンネルIDだけを非表示ユーザーへ記録します。AI結果にもカテゴリの有効状態と重みを適用し、スパム判定はAIで打ち消しません。診断プレビューも共通の`mergeAiResult`を使用します。
 
 200ms単位でバッチを1つずつ実行します。Chrome内蔵AIを優先する自動モードとChrome内蔵AI単独では1バッチ最大8件、LM Studio単独では設定した最大20件を使います。実行中の待機は1バッチだけ保持し、満杯時は最古のpending項目をルール判定へ戻して最新項目を受け入れます。待機時間が1.25秒を超えた項目はAIへ送りません。これらのload sheddingはProvider障害として扱わず、診断時だけ混雑・期限切れを記録します。表示待機500ms、Chrome推論timeout（固定10秒）、LM Studioの`requestTimeoutMs`（既定10秒、1〜60秒）は分離し、先にルール表示した後からAI結果で更新できます。HTTP応答本文の受信・解析までLM Studio timeoutの対象です。Chrome Prompt APIは`responseConstraint`を使い、LM StudioのJSON Schema、JSON Object、テキスト互換形式とともにruntime validationを共通化しています。Chrome側はsystem promptだけのbase sessionをService Worker内で遅延作成し、batchごとにcloneして必ずdestroyします。Service Worker再起動時はsessionを再生成します。`downloadable`と`downloading`では通常分類から`create()`せず、Options画面のユーザー操作だけが初回モデル準備を開始します。プロンプトに日本語の問題例・安全例を含め、コメント内の命令を分類データとして扱うよう指示します。明らかなリアクションはAIへ送らず、広いprefilterも候補抽出にだけ使います。
 

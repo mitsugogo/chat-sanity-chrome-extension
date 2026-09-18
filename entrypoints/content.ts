@@ -54,6 +54,9 @@ import {
 } from '../lib/youtube/adapter';
 import { ChatProcessingTracker } from '../lib/youtube/processing-tracker';
 import {
+  clearModeratorSticky,
+  refreshLatestModeratorSticky,
+  renderModeratorSticky,
   renderPending,
   renderResult,
   resetRenderedItem,
@@ -331,6 +334,11 @@ export default defineContentScript({
     ) => {
       const result = mergeAiResult(base, ai, settings, context, requestReason);
       const { action, score } = result;
+      if (
+        settings.flowChat.enabled &&
+        score >= resolveFlowChatThreshold(settings)
+      )
+        flowBridge.excludeFinalized(element);
       const category = result.categories[0] ?? 'safe';
       const auditReasons =
         requestReason === 'zero-score-audit'
@@ -443,6 +451,7 @@ export default defineContentScript({
         finalizeFlowAllowed();
         return;
       }
+      renderModeratorSticky(element, settings.enabled && message.isModerator);
       const normalized = normalizeText(message.text);
       const author = message.authorExternalChannelId ?? message.author;
       const context = {
@@ -479,10 +488,26 @@ export default defineContentScript({
         aiPending = false,
       ) => {
         if (settings.debugMode) {
-          renderResult(element, result, diagnostic, true, aiPending, {
-            onSubmit: (judgement, correctCategory) =>
-              submitFeedback(diagnostic, judgement, correctCategory),
-          });
+          const feedbackHandlers =
+            message.isOwner ||
+            message.isModerator ||
+            message.isSelf ||
+            message.isPaidMessage
+              ? undefined
+              : {
+                  onSubmit: (
+                    judgement: FeedbackJudgement,
+                    correctCategory: DiagnosticEntry['category'],
+                  ) => submitFeedback(diagnostic, judgement, correctCategory),
+                };
+          renderResult(
+            element,
+            result,
+            diagnostic,
+            true,
+            aiPending,
+            feedbackHandlers,
+          );
           return;
         }
         renderResult(element, result, diagnostic, false, aiPending);
@@ -714,8 +739,6 @@ export default defineContentScript({
             expiresAt: Date.now() + CLASSIFICATION_CACHE_TTL_MS,
           });
           if (cache.size > 500) cache.delete(cache.keys().next().value ?? '');
-          // Flow Chat has already received its one-shot decision. Late AI
-          // responses update YouTube rendering only.
           applyAiResult(
             element,
             base,
@@ -817,6 +840,7 @@ export default defineContentScript({
         scan(mutation.target);
         for (const node of mutation.addedNodes) scan(node);
       }
+      refreshLatestModeratorSticky();
     });
     observer.observe(root, {
       childList: true,
@@ -889,6 +913,7 @@ export default defineContentScript({
       auditSampler.clear();
       flowBridge.deactivate();
       flowMetrics.clear();
+      clearModeratorSticky();
       observer.disconnect();
       unsubscribe();
       void sendRuntimeMessage({ type: 'flow:metrics-clear-frame' }).catch(

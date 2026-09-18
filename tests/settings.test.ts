@@ -15,6 +15,7 @@ describe('AI settings migration', () => {
       sessionLearning: true,
       zeroScoreAudit: {
         enabled: true,
+        checkAllUnmatched: false,
         baseProbability: 0.03,
         maxPerMinute: 12,
         maxPending: 20,
@@ -70,6 +71,7 @@ describe('AI settings migration', () => {
         lmStudio: {
           zeroScoreAudit: {
             enabled: false,
+            checkAllUnmatched: true,
             baseProbability: 2,
             maxPerMinute: 0,
             maxPending: 99,
@@ -78,6 +80,7 @@ describe('AI settings migration', () => {
       }).lmStudio.zeroScoreAudit,
     ).toEqual({
       enabled: false,
+      checkAllUnmatched: true,
       baseProbability: 0.5,
       maxPerMinute: 1,
       maxPending: 20,

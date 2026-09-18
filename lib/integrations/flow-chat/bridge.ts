@@ -174,6 +174,27 @@ export class FlowChatBridge {
     });
   }
 
+  /**
+   * Escalates an already-finalized Flow Chat item to deleted. This is used
+   * when a local-AI result arrives after the fail-open/rule decision and must
+   * not reopen Flow Chat's initial wait.
+   */
+  excludeFinalized(element: HTMLElement): boolean {
+    if (
+      !this.isActive() ||
+      !this.isFinalized(element) ||
+      element.classList.contains(FLOW_CHAT_CLASSES.deleted)
+    )
+      return false;
+    try {
+      element.classList.add(FLOW_CHAT_CLASSES.deleted);
+      return true;
+    } catch (error) {
+      this.reportError(error, element);
+      return false;
+    }
+  }
+
   isFinalized(element: HTMLElement): boolean {
     return (
       this.states.get(element) === 'finalized' ||

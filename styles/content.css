@@ -1,3 +1,27 @@
+yt-live-chat-text-message-renderer.chatsanity-moderator-sticky,
+yt-live-chat-paid-message-renderer.chatsanity-moderator-sticky,
+yt-live-chat-membership-item-renderer.chatsanity-moderator-sticky {
+  position: sticky !important;
+  z-index: 20;
+  top: 0;
+  box-sizing: border-box;
+  background-color: var(--yt-live-chat-background-color, #fff) !important;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 12%);
+}
+
+html[dark] yt-live-chat-text-message-renderer.chatsanity-moderator-sticky,
+html[dark] yt-live-chat-paid-message-renderer.chatsanity-moderator-sticky,
+html[dark] yt-live-chat-membership-item-renderer.chatsanity-moderator-sticky {
+  background-color: var(--yt-live-chat-background-color, #0f0f0f) !important;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 16%);
+}
+
+yt-live-chat-text-message-renderer.chatsanity-moderator-sticky-latest,
+yt-live-chat-paid-message-renderer.chatsanity-moderator-sticky-latest,
+yt-live-chat-membership-item-renderer.chatsanity-moderator-sticky-latest {
+  z-index: 21;
+}
+
 yt-live-chat-text-message-renderer.chatsanity-dim,
 yt-live-chat-paid-message-renderer.chatsanity-dim,
 yt-live-chat-membership-item-renderer.chatsanity-dim {
