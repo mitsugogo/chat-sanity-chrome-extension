@@ -668,7 +668,7 @@ export default function App() {
                 </div>
               </div>
               <div className="setting-row">
-                <span>
+                <span className="setting-row__copy">
                   <strong>Flow Chat連携を有効にする</strong>
                   <small>Flow Chatが入っていない場合も動作に影響しません</small>
                 </span>
@@ -1067,7 +1067,7 @@ export default function App() {
                     </p>
                   </div>
                   <div className="setting-row">
-                    <span>
+                    <span className="setting-row__copy">
                       <strong>未判定コメントをAIで再確認</strong>
                       <small>
                         ルールに一致しない0点コメントを通常は一部だけ監査します
@@ -1091,7 +1091,7 @@ export default function App() {
                     />
                   </div>
                   <div className="setting-row">
-                    <span>
+                    <span className="setting-row__copy">
                       <strong>ルール未一致をすべてAIで確認</strong>
                       <small>
                         抽選と監査上限を使わず全件を送ります。混雑時は古い待機コメントをルール判定へ戻します

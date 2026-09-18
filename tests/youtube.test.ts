@@ -16,6 +16,7 @@ import {
 function createChatItem() {
   const root = document.createElement('div');
   root.innerHTML = `<yt-live-chat-text-message-renderer id="abc">
+    <span id="author-photo"><img alt="viewerのアイコン"></span>
     <span id="author-name">viewer</span>
     <span id="message">そっちに行った方がいい</span>
   </yt-live-chat-text-message-renderer>`;
@@ -201,13 +202,19 @@ describe('YouTube renderer', () => {
     );
   });
 
-  it('判定中表示から行全体のぼかしへ更新し原文を一時表示できる', () => {
+  it('判定中はアイコンと発言者名を残して本文だけを置き換える', () => {
     const item = findChatItems(createChatItem())[0]!;
     renderPending(item);
     expect(item).toHaveClass('chatsanity-pending');
-    expect(item.querySelector('.chatsanity-placeholder')).toHaveTextContent(
-      '判定中',
+    expect(item.querySelector('#author-photo')).not.toBeNull();
+    expect(item.querySelector('#author-name')).toHaveTextContent('viewer');
+    expect(item.querySelector('#message')).toHaveTextContent(
+      'そっちに行った方がいい',
     );
+    expect(item.querySelector('#message')).toHaveAttribute('aria-label', '...');
+    expect(
+      item.querySelector('.chatsanity-placeholder'),
+    ).not.toBeInTheDocument();
 
     renderResult(item, {
       score: 0.95,
@@ -221,9 +228,6 @@ describe('YouTube renderer', () => {
     expect(item.querySelector('#message')).toHaveTextContent(
       'そっちに行った方がいい',
     );
-    expect(
-      item.querySelector('.chatsanity-placeholder'),
-    ).not.toBeInTheDocument();
     const message = item.querySelector<HTMLElement>('#message')!;
     expect(message).toHaveAttribute(
       'aria-label',

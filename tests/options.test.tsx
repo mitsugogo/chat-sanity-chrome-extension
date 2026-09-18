@@ -111,6 +111,16 @@ describe('options', () => {
     const allUnmatchedSwitch =
       screen.getByLabelText('ルール未一致をすべてAIで確認');
     expect(allUnmatchedSwitch).not.toBeChecked();
+    expect(
+      screen.getByText(
+        'ルールに一致しない0点コメントを通常は一部だけ監査します',
+      ).parentElement,
+    ).toHaveClass('setting-row__copy');
+    expect(
+      screen.getByText(
+        '抽選と監査上限を使わず全件を送ります。混雑時は古い待機コメントをルール判定へ戻します',
+      ).parentElement,
+    ).toHaveClass('setting-row__copy');
     fireEvent.click(allUnmatchedSwitch);
     fireEvent.change(screen.getByLabelText('指示・指示厨の重み'), {
       target: { value: '0.9' },

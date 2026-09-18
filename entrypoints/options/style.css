@@ -431,6 +431,12 @@ select,
   font-size: 12px;
 }
 
+.setting-row__copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
 .secondary-button {
   min-height: 36px;
   border: 1px solid #8996a6;

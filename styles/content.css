@@ -38,8 +38,18 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
   filter: none;
 }
 
-.chatsanity-pending > :not(.chatsanity-placeholder):not(.chatsanity-ai-status) {
-  display: none !important;
+.chatsanity-pending #message {
+  position: relative;
+  visibility: hidden;
+}
+
+.chatsanity-pending #message::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  content: attr(aria-label);
+  visibility: visible;
+  white-space: nowrap;
 }
 
 .chatsanity-hidden
@@ -68,39 +78,6 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
 .chatsanity-hidden #message {
   cursor: pointer;
   pointer-events: auto !important;
-}
-
-.chatsanity-placeholder {
-  box-sizing: border-box;
-  width: auto;
-  min-height: 22px;
-  margin: 4px 12px;
-  padding: 2px 8px;
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 999px;
-  background: rgba(128, 128, 128, 0.12);
-  color: inherit;
-  opacity: 0.62;
-  font:
-    500 11px/1.35 -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
-  text-align: left;
-}
-
-.chatsanity-placeholder:not(:disabled) {
-  cursor: pointer;
-}
-
-.chatsanity-placeholder:not(:disabled):hover {
-  background: rgba(128, 128, 128, 0.2);
-  opacity: 0.86;
-}
-
-.chatsanity-placeholder:not(:disabled):focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
 }
 
 .chatsanity-debug-score,

@@ -81,7 +81,9 @@ export function renderPending(element: HTMLElement, debugMode = false): void {
   resetRenderedItem(element);
   element.classList.add('chatsanity-pending');
   element.setAttribute('data-chatsanity-action', 'pending');
-  element.append(createPlaceholder('判定中…', false));
+  element
+    .querySelector<HTMLElement>('#message')
+    ?.setAttribute('aria-label', '...');
   if (debugMode)
     element.append(createDebugLabel('AI検閲中', 'chatsanity-ai-status'));
 }
@@ -167,18 +169,6 @@ function createDebugLabel(label: string, className: string): HTMLSpanElement {
     label === 'AI検閲中' ? label : `判定スコア ${label}`,
   );
   return span;
-}
-
-function createPlaceholder(
-  label: string,
-  interactive: boolean,
-): HTMLButtonElement {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'chatsanity-placeholder';
-  button.textContent = label;
-  button.disabled = !interactive;
-  return button;
 }
 
 function createFeedbackControls(
