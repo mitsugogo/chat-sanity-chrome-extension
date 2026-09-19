@@ -52,6 +52,7 @@ export function createFilterEngine() {
     learned?: LmClassificationResult | null,
     context?: FilterContext,
     humanFeedback?: ExactFeedbackResult | null,
+    persistentAiSafe = false,
   ): FilterResult => {
     const profile = settings.profiles[settings.activePreset];
     const text = normalizeText(message.text);
@@ -145,6 +146,24 @@ export function createFilterEngine() {
 
     const exactFeedback = resultFromHumanFeedback(humanFeedback, profile);
     if (exactFeedback) return exactFeedback;
+
+    if (persistentAiSafe) {
+      return result(
+        0,
+        ['safe'],
+        ['過去のAIセーフ判定を再利用'],
+        'allow',
+        false,
+        'explicit-safe',
+        {
+          confidence: 1,
+          categoryScores: { safe: 0 },
+          ruleIds: ['AI_SAFE_MEMORY_EXACT_001'],
+          features: ['persistent-ai-safe-memory'],
+          source: 'local-ai',
+        },
+      );
+    }
 
     if (isObviouslySafe(text)) {
       return result(
@@ -327,10 +346,15 @@ export function mergeAiResult(
     return { ...base, needsAi: false };
   const reasons = [
     ...base.reasons,
-    `ローカルAIによる${categoryLabel(ai.category)}判定`,
+    ai.safeMemoryHit
+      ? '過去のAIセーフ判定を再利用'
+      : `ローカルAIによる${categoryLabel(ai.category)}判定`,
   ];
   const adjusted = applyContextModifier(score, [ai.category], context, reasons);
-  const features = [...(base.features ?? []), 'llm-classification'];
+  const features = [
+    ...(base.features ?? []),
+    ai.safeMemoryHit ? 'persistent-ai-safe-memory' : 'llm-classification',
+  ];
   score = applySessionBoost(
     adjusted.score,
     context?.sessionBoost,
@@ -352,9 +376,11 @@ export function mergeAiResult(
     },
     ruleIds: [
       ...(base.ruleIds ?? []),
-      ...['LLM_CLASSIFICATION_001'].filter(
-        (id) => !(base.ruleIds ?? []).includes(id),
-      ),
+      ...[
+        ai.safeMemoryHit
+          ? 'AI_SAFE_MEMORY_EXACT_001'
+          : 'LLM_CLASSIFICATION_001',
+      ].filter((id) => !(base.ruleIds ?? []).includes(id)),
     ],
     features,
     contextAdjustment: (base.contextAdjustment ?? 0) + adjusted.adjustment,

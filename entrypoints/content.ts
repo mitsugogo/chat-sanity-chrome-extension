@@ -28,6 +28,11 @@ import { CATEGORY_LABELS } from '../lib/settings';
 import { isLocalAiConfigured } from '../lib/settings';
 import { CLASSIFIER_PROMPT_VERSION } from '../lib/local-ai/prompt';
 import { resolveLocalAiLoadPolicy } from '../lib/local-ai/load-policy';
+import {
+  AI_SAFE_MEMORY_PORT_NAME,
+  fingerprintText,
+  isAiSafeMemoryPortMessage,
+} from '../lib/local-ai/safe-memory';
 import { loadSettings, saveSettings, subscribeSettings } from '../lib/storage';
 import { addHiddenUser } from '../lib/user-lists';
 import { AuthorRestrictionTracker } from '../lib/filter/author-restriction';
@@ -89,18 +94,28 @@ export default defineContentScript({
   runAt: 'document_start',
   cssInjectionMode: 'manifest',
   async main(ctx) {
-    const [initialSettings, feedbackResponse] = await Promise.all([
-      loadSettings(),
-      sendRuntimeMessage({ type: 'feedback:exact-list' }).catch(
-        () => undefined,
-      ),
-    ]);
+    const [initialSettings, feedbackResponse, safeMemoryResponse] =
+      await Promise.all([
+        loadSettings(),
+        sendRuntimeMessage({ type: 'feedback:exact-list' }).catch(
+          () => undefined,
+        ),
+        sendRuntimeMessage({ type: 'safe-memory:list' }).catch(() => undefined),
+      ]);
     let settings = initialSettings;
     const feedbackLearner = new FeedbackLearner();
     const feedbackSnapshot = feedbackResponse as RuntimeResponse | undefined;
     if (feedbackSnapshot?.ok && 'exactMemories' in feedbackSnapshot)
       feedbackLearner.hydrate(feedbackSnapshot.exactMemories);
+    const safeFingerprints = new Set<string>();
+    const safeMemorySnapshot = safeMemoryResponse as
+      RuntimeResponse | undefined;
+    if (safeMemorySnapshot?.ok && 'safeFingerprints' in safeMemorySnapshot) {
+      for (const fingerprint of safeMemorySnapshot.safeFingerprints)
+        safeFingerprints.add(fingerprint);
+    }
     let feedbackPort: ReturnType<typeof browser.runtime.connect> | undefined;
+    let safeMemoryPort: ReturnType<typeof browser.runtime.connect> | undefined;
     let feedbackPortDisposed = false;
     const connectFeedbackMemory = () => {
       if (
@@ -134,6 +149,40 @@ export default defineContentScript({
       }
     };
     connectFeedbackMemory();
+    const connectSafeMemory = () => {
+      if (
+        feedbackPortDisposed ||
+        safeMemoryPort ||
+        typeof browser.runtime.connect !== 'function'
+      )
+        return;
+      try {
+        const port = browser.runtime.connect({
+          name: AI_SAFE_MEMORY_PORT_NAME,
+        });
+        safeMemoryPort = port;
+        port.onMessage.addListener((message: unknown) => {
+          if (!isAiSafeMemoryPortMessage(message)) return;
+          if (message.kind === 'replace') {
+            safeFingerprints.clear();
+            for (const fingerprint of message.fingerprints)
+              safeFingerprints.add(fingerprint);
+          } else {
+            safeFingerprints.add(message.fingerprint);
+          }
+        });
+        port.onDisconnect.addListener(() => {
+          if (safeMemoryPort !== port) return;
+          safeMemoryPort = undefined;
+          if (!feedbackPortDisposed)
+            window.setTimeout(connectSafeMemory, 1_000);
+        });
+      } catch {
+        // Initial loading above is sufficient when a worker restart briefly
+        // prevents the live update port from connecting.
+      }
+    };
+    connectSafeMemory();
     let summary: SessionSummary = {
       active: true,
       hidden: 0,
@@ -211,8 +260,8 @@ export default defineContentScript({
         }
         return response.results.map((result) => ({
           ...result,
-          providerId: response.providerId,
-          latencyMs: response.latencyMs,
+          providerId: result.providerId ?? response.providerId,
+          latencyMs: result.latencyMs ?? response.latencyMs,
         }));
       };
       return new ClassificationBatchQueue(classify, {
@@ -400,7 +449,7 @@ export default defineContentScript({
       record(diagnostic);
     };
 
-    const processItem = (element: HTMLElement) => {
+    const processItem = async (element: HTMLElement) => {
       let flowStarted =
         settings.flowChat.enabled &&
         flowBridge.isActive() &&
@@ -458,6 +507,18 @@ export default defineContentScript({
           message.isModerator,
       );
       const normalized = normalizeText(message.text);
+      let persistentAiSafe = false;
+      if (normalized && safeFingerprints.size > 0) {
+        try {
+          persistentAiSafe = safeFingerprints.has(
+            await fingerprintText(normalized),
+          );
+        } catch {
+          // Fingerprint lookup is an optimization. Normal rule/AI handling
+          // remains available if Web Crypto is unavailable.
+        }
+      }
+      if (!processing.isCurrent(token)) return;
       const author = message.authorExternalChannelId ?? message.author;
       const context = {
         conflictLevel: conflict.get(message.timestamp),
@@ -525,6 +586,7 @@ export default defineContentScript({
           learner.lookup(normalized),
           context,
           feedbackLearner.lookupExact(normalized),
+          persistentAiSafe,
         );
       } catch {
         if (flowStarted) {
@@ -815,35 +877,37 @@ export default defineContentScript({
         });
     };
 
-    const scan = (node: Node) => {
+    const scan = async (node: Node) => {
+      if (feedbackPortDisposed) return;
       const items = findChatItems(node);
       const itemSet = new Set(items);
-      for (const item of items) processItem(item);
-      if (!settings.flowChat.enabled || !flowBridge.isActive()) return;
-
-      const candidates: HTMLElement[] = [];
-      if (node instanceof HTMLElement && node.id === 'items') {
-        candidates.push(
-          ...Array.from(node.children).filter(
-            (child): child is HTMLElement => child instanceof HTMLElement,
-          ),
-        );
-      } else if (
-        node instanceof HTMLElement &&
-        node.parentElement?.id === 'items'
-      ) {
-        candidates.push(node);
+      const itemTasks = items.map((item) => processItem(item));
+      if (settings.flowChat.enabled && flowBridge.isActive()) {
+        const candidates: HTMLElement[] = [];
+        if (node instanceof HTMLElement && node.id === 'items') {
+          candidates.push(
+            ...Array.from(node.children).filter(
+              (child): child is HTMLElement => child instanceof HTMLElement,
+            ),
+          );
+        } else if (
+          node instanceof HTMLElement &&
+          node.parentElement?.id === 'items'
+        ) {
+          candidates.push(node);
+        }
+        for (const candidate of candidates) {
+          if (!itemSet.has(candidate)) finalizeUnsupported(candidate);
+        }
       }
-      for (const candidate of candidates) {
-        if (!itemSet.has(candidate)) finalizeUnsupported(candidate);
-      }
+      await Promise.all(itemTasks);
     };
 
     const root = document.querySelector('#items') ?? document.documentElement;
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
-        scan(mutation.target);
-        for (const node of mutation.addedNodes) scan(node);
+        void scan(mutation.target);
+        for (const node of mutation.addedNodes) void scan(node);
       }
       refreshLatestModeratorSticky();
     });
@@ -854,7 +918,7 @@ export default defineContentScript({
     });
     if (settings.flowChat.enabled) flowBridge.activate();
     else flowBridge.deactivate();
-    scan(root);
+    await scan(root);
     publishSummary();
 
     const unsubscribe = subscribeSettings((next) => {
@@ -897,9 +961,8 @@ export default defineContentScript({
         .querySelectorAll<HTMLElement>(CHAT_ITEM_SELECTOR)
         .forEach((item) => {
           resetRenderedItem(item);
-          processItem(item);
         });
-      scan(root);
+      void scan(root);
       publishFlowMetrics();
     });
 
@@ -907,6 +970,8 @@ export default defineContentScript({
       feedbackPortDisposed = true;
       feedbackPort?.disconnect();
       feedbackPort = undefined;
+      safeMemoryPort?.disconnect();
+      safeMemoryPort = undefined;
       processing.reset();
       queue.dispose();
       cache.clear();

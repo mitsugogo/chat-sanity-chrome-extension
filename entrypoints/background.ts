@@ -1,6 +1,12 @@
 import { browser } from 'wxt/browser';
 import { listModels } from '../lib/lm-studio';
 import { LocalAiResolver } from '../lib/local-ai/resolver';
+import {
+  AI_SAFE_MEMORY_PORT_NAME,
+  classifyWithSafeMemory,
+  PersistentAiSafeMemory,
+  type AiSafeMemoryPortMessage,
+} from '../lib/local-ai/safe-memory';
 import { DebugHistoryStore } from '../lib/debug-history';
 import { IndexedDbFeedbackStore } from '../lib/feedback/store';
 import {
@@ -122,9 +128,14 @@ async function getLmStudioStatus(): Promise<LmStudioStatus> {
 export default defineBackground(() => {
   const debugHistory = new DebugHistoryStore();
   const feedbackStore = new IndexedDbFeedbackStore();
+  const safeMemory = new PersistentAiSafeMemory(browser.storage.local);
   const feedbackPorts = new Map<
     ReturnType<typeof browser.runtime.connect>,
     FeedbackMemoryPortMessage[] | undefined
+  >();
+  const safeMemoryPorts = new Map<
+    ReturnType<typeof browser.runtime.connect>,
+    AiSafeMemoryPortMessage[] | undefined
   >();
   const flowMetrics = new FlowChatMetricsStore();
   void ensureSettings();
@@ -152,7 +163,40 @@ export default defineBackground(() => {
     }
   };
 
+  const publishSafeMemory = (message: AiSafeMemoryPortMessage) => {
+    for (const [port, pending] of safeMemoryPorts) {
+      if (pending) {
+        pending.push(message);
+        continue;
+      }
+      try {
+        port.postMessage(message);
+      } catch {
+        safeMemoryPorts.delete(port);
+      }
+    }
+  };
+
   browser.runtime.onConnect.addListener((port) => {
+    if (port.name === AI_SAFE_MEMORY_PORT_NAME) {
+      safeMemoryPorts.set(port, []);
+      port.onDisconnect.addListener(() => safeMemoryPorts.delete(port));
+      void safeMemory
+        .listFingerprints()
+        .then((fingerprints) => {
+          const pending = safeMemoryPorts.get(port);
+          if (!pending) return;
+          try {
+            port.postMessage({ kind: 'replace', fingerprints });
+            safeMemoryPorts.set(port, undefined);
+            for (const message of pending) port.postMessage(message);
+          } catch {
+            safeMemoryPorts.delete(port);
+          }
+        })
+        .catch(() => safeMemoryPorts.delete(port));
+      return;
+    }
     if (port.name !== FEEDBACK_MEMORY_PORT_NAME) return;
     feedbackPorts.set(port, []);
     port.onDisconnect.addListener(() => feedbackPorts.delete(port));
@@ -280,6 +324,19 @@ export default defineBackground(() => {
         }));
     }
 
+    if (request.type === 'safe-memory:list') {
+      return safeMemory
+        .listFingerprints()
+        .then<RuntimeResponse>((safeFingerprints) => ({
+          ok: true,
+          safeFingerprints,
+        }))
+        .catch<RuntimeResponse>(() => ({
+          ok: false,
+          error: 'AIセーフ記憶を取得できませんでした。',
+        }));
+    }
+
     if (request.type === 'debug:get') {
       return Promise.resolve<RuntimeResponse>({
         ok: true,
@@ -396,8 +453,12 @@ export default defineBackground(() => {
     }
 
     if (request.type === 'local-ai:classify') {
-      return getResolver()
-        .then((current) => current.classify(request.items))
+      return classifyWithSafeMemory(
+        request.items,
+        safeMemory,
+        async (items) => (await getResolver()).classify(items),
+        (fingerprint) => publishSafeMemory({ kind: 'update', fingerprint }),
+      )
         .then<RuntimeResponse>((classification) => ({
           ok: true,
           ...classification,

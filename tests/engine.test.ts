@@ -233,6 +233,56 @@ describe('filter engine', () => {
     });
   });
 
+  it('配信をまたいだAIセーフ完全一致をルールより優先する', () => {
+    const value = settings();
+    value.localAiMode = 'disabled';
+    value.lmStudio.enabled = false;
+    const evaluate = createFilterEngine();
+    const safe = evaluate(
+      createMessage('回復した方がいい'),
+      value,
+      null,
+      undefined,
+      null,
+      true,
+    );
+
+    expect(safe).toMatchObject({
+      score: 0,
+      action: 'allow',
+      categories: ['safe'],
+      reasons: ['過去のAIセーフ判定を再利用'],
+      ruleDisposition: 'explicit-safe',
+      needsAi: false,
+      ruleIds: ['AI_SAFE_MEMORY_EXACT_001'],
+      features: ['persistent-ai-safe-memory'],
+    });
+
+    value.blockedWords = ['回復した方がいい'];
+    expect(
+      evaluate(
+        createMessage('回復した方がいい'),
+        value,
+        null,
+        undefined,
+        null,
+        true,
+      ),
+    ).toMatchObject({ action: 'hide', reasons: ['ブロックする語句に一致'] });
+
+    value.blockedWords = [];
+    expect(
+      evaluate(
+        createMessage('回復した方がいい'),
+        value,
+        null,
+        undefined,
+        { category: 'backseat', confidence: 1, sampleCount: 3 },
+        true,
+      ).categories,
+    ).toContain('backseat');
+  });
+
   it.each([
     '草',
     'ん？',

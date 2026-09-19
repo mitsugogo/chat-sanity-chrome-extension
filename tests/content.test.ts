@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => ({
     vi.fn<(listener: (settings: SettingsV1) => void) => () => void>(),
   sendMessage: vi.fn<(message: RuntimeMessage) => Promise<RuntimeResponse>>(),
   connect: vi.fn(),
+  fingerprintText: vi.fn<(text: string) => Promise<string>>(),
+  safeFingerprints: [] as string[],
   feedbackMessageListeners: [] as Array<(message: unknown) => void>,
+  safeMemoryMessageListeners: [] as Array<(message: unknown) => void>,
 }));
 vi.mock('../lib/storage', () => ({
   loadSettings: mocks.loadSettings,
@@ -26,6 +29,12 @@ vi.mock('wxt/browser', () => ({
   browser: {
     runtime: { sendMessage: mocks.sendMessage, connect: mocks.connect },
   },
+}));
+vi.mock('../lib/local-ai/safe-memory', () => ({
+  AI_SAFE_MEMORY_PORT_NAME: 'chat-sanity-ai-safe-memory',
+  fingerprintText: mocks.fingerprintText,
+  isAiSafeMemoryPortMessage: (message: unknown) =>
+    typeof message === 'object' && message !== null && 'kind' in message,
 }));
 
 type Context = { onInvalidated: (callback: () => void) => void };
@@ -48,7 +57,17 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   requests.length = 0;
+  mocks.safeFingerprints.length = 0;
   mocks.feedbackMessageListeners.length = 0;
+  mocks.safeMemoryMessageListeners.length = 0;
+  mocks.fingerprintText.mockImplementation(async (text) => {
+    let value = 2_166_136_261;
+    for (const character of text) {
+      value ^= character.codePointAt(0) ?? 0;
+      value = Math.imul(value, 16_777_619);
+    }
+    return (value >>> 0).toString(16).padStart(8, '0').repeat(8);
+  });
   settings = structuredClone(DEFAULT_SETTINGS);
   settings.lmStudio.enabled = true;
   settings.lmStudio.model = 'local-test';
@@ -56,20 +75,31 @@ beforeEach(() => {
   mocks.loadSettings.mockResolvedValue(settings);
   mocks.subscribeSettings.mockReturnValue(vi.fn());
   mocks.sendMessage.mockImplementation((message) => {
+    if (message.type === 'safe-memory:list')
+      return Promise.resolve({
+        ok: true,
+        safeFingerprints: [...mocks.safeFingerprints],
+      });
     if (message.type === 'local-ai:classify')
       return new Promise((resolve) =>
         requests.push({ request: message, resolve }),
       );
     return Promise.resolve({ ok: true });
   });
-  mocks.connect.mockImplementation(() => ({
-    onMessage: {
-      addListener: (listener: (message: unknown) => void) =>
-        mocks.feedbackMessageListeners.push(listener),
-    },
-    onDisconnect: { addListener: vi.fn() },
-    disconnect: vi.fn(),
-  }));
+  mocks.connect.mockImplementation((options?: { name?: string }) => {
+    const listeners =
+      options?.name === 'chat-sanity-ai-safe-memory'
+        ? mocks.safeMemoryMessageListeners
+        : mocks.feedbackMessageListeners;
+    return {
+      onMessage: {
+        addListener: (listener: (message: unknown) => void) =>
+          listeners.push(listener),
+      },
+      onDisconnect: { addListener: vi.fn() },
+      disconnect: vi.fn(),
+    };
+  });
   document.body.innerHTML = '<div id="items"></div>';
 });
 afterEach(() => {
@@ -566,6 +596,41 @@ describe('content integration', () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(requests).toHaveLength(2);
     expect(third).toHaveClass('chatsanity-pending');
+  });
+  it('前の配信でAIがsafeにした完全一致本文はAIへ送らず許可する', async () => {
+    const text = '回復した方がいい';
+    mocks.safeFingerprints.push(await mocks.fingerprintText(text));
+    settings.localAiMode = 'disabled';
+    settings.lmStudio.enabled = false;
+    settings.debugMode = true;
+    const item = append('persistent-safe', text);
+
+    await start();
+
+    expect(requests).toHaveLength(0);
+    expect(item).toHaveAttribute('data-chatsanity-action', 'allow');
+    expect(item.querySelector('.chatsanity-debug-score')).toHaveTextContent(
+      '0.00',
+    );
+  });
+  it('別のチャットフレームで増えたAI safe記憶を即時反映する', async () => {
+    settings.localAiMode = 'disabled';
+    settings.lmStudio.enabled = false;
+    await start();
+    const listener = mocks.safeMemoryMessageListeners[0];
+    if (!listener) throw new Error('safe memory listener missing');
+    const text = '配信をまたぐ安全コメント';
+    listener({
+      kind: 'update',
+      fingerprint: await mocks.fingerprintText(text),
+    });
+
+    const item = append('safe-memory-live-update', text);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(requests).toHaveLength(0);
+    expect(item).toHaveAttribute('data-chatsanity-action', 'allow');
   });
   it('0点のルール未一致を抽選で監査し同文はキャッシュから再利用する', async () => {
     settings.debugMode = true;

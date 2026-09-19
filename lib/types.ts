@@ -230,6 +230,8 @@ export interface LmClassificationResult {
   score?: number;
   providerId?: LocalAiProviderId;
   latencyMs?: number;
+  /** Exact-match result restored from the cross-stream safe fingerprint store. */
+  safeMemoryHit?: boolean;
 }
 
 export type RuntimeMessage =
@@ -247,6 +249,7 @@ export type RuntimeMessage =
   | { type: 'feedback:lookup-exact'; normalizedText: string }
   | { type: 'feedback:clear' }
   | { type: 'feedback:export' }
+  | { type: 'safe-memory:list' }
   | { type: 'flow:metrics-update'; metrics: FlowChatMetricsSnapshot }
   | { type: 'flow:metrics-clear-frame' }
   | { type: 'lm:list-models'; endpoint: string }
@@ -284,6 +287,7 @@ export type RuntimeResponse =
     }
   | { ok: true; exactMemories: FeedbackExactMemory[] }
   | { ok: true; exactFeedback: ExactFeedbackResult | null }
+  | { ok: true; safeFingerprints: string[] }
   | {
       ok: true;
       exactMemory: FeedbackExactMemory;

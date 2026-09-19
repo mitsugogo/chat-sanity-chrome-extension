@@ -74,6 +74,26 @@ describe('AI結果と設定の合成', () => {
       ),
     ).toMatchObject({ action: 'allow', score: 0.1 });
   });
+  it('永続セーフ記憶の再利用元を診断結果へ残す', () => {
+    expect(
+      mergeAiResult(
+        base,
+        {
+          id: '1',
+          category: 'safe',
+          action: 'allow',
+          confidence: 0.95,
+          safeMemoryHit: true,
+        },
+        settings(),
+      ),
+    ).toMatchObject({
+      action: 'allow',
+      reasons: expect.arrayContaining(['過去のAIセーフ判定を再利用']),
+      ruleIds: ['AI_SAFE_MEMORY_EXACT_001'],
+      features: ['persistent-ai-safe-memory'],
+    });
+  });
   it('単文AIで投稿頻度の証拠を上書きしない', () => {
     const spam = {
       ...base,
