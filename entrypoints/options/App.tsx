@@ -642,6 +642,22 @@ export default function App() {
               </div>
               <div className="spam-setting">
                 <span>
+                  <strong>モデレーター投稿を固定表示</strong>
+                  <small>最新の投稿をチャット上部に固定します</small>
+                </span>
+                <Switch
+                  checked={settings.stickyModeratorMessages}
+                  onChange={(stickyModeratorMessages) =>
+                    setSettings((current) => ({
+                      ...current,
+                      stickyModeratorMessages,
+                    }))
+                  }
+                  label="モデレーター投稿を固定表示"
+                />
+              </div>
+              <div className="spam-setting">
+                <span>
                   <strong>デバッグモード</strong>
                   <small>
                     保存後、チャットにスコアとAI検閲中ラベルを表示します

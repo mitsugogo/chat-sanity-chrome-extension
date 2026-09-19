@@ -15,6 +15,7 @@ const MANAGED_CLASSES = [
 ];
 const MODERATOR_STICKY_CLASS = 'chatsanity-moderator-sticky';
 const LATEST_MODERATOR_STICKY_CLASS = 'chatsanity-moderator-sticky-latest';
+const MODERATOR_STICKY_ACTIVE_ROOT_CLASS = 'chatsanity-moderator-sticky-active';
 const REVEAL_HANDLERS = new WeakMap<HTMLElement, () => void>();
 let feedbackControlSequence = 0;
 
@@ -51,6 +52,10 @@ export function refreshLatestModeratorSticky(doc: Document = document): void {
     item.classList.remove(LATEST_MODERATOR_STICKY_CLASS);
   }
   stickyItems.at(-1)?.classList.add(LATEST_MODERATOR_STICKY_CLASS);
+  doc.documentElement.classList.toggle(
+    MODERATOR_STICKY_ACTIVE_ROOT_CLASS,
+    stickyItems.length > 0,
+  );
 }
 
 export function clearModeratorSticky(doc: Document = document): void {
@@ -62,6 +67,7 @@ export function clearModeratorSticky(doc: Document = document): void {
         LATEST_MODERATOR_STICKY_CLASS,
       );
     });
+  doc.documentElement.classList.remove(MODERATOR_STICKY_ACTIVE_ROOT_CLASS);
 }
 
 export function resetRenderedItem(element: HTMLElement): void {

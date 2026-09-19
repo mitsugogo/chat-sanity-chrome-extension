@@ -161,6 +161,7 @@ export interface LmStudioSettings {
 export interface SettingsV1 {
   schemaVersion: 1;
   enabled: boolean;
+  stickyModeratorMessages: boolean;
   debugMode: boolean;
   activePreset: PresetId;
   profiles: Record<PresetId, PresetProfile>;

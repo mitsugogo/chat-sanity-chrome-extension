@@ -169,6 +169,9 @@ describe('YouTube renderer', () => {
       'chatsanity-moderator-sticky',
       'chatsanity-moderator-sticky-latest',
     );
+    expect(document.documentElement).toHaveClass(
+      'chatsanity-moderator-sticky-active',
+    );
 
     renderModeratorSticky(second, true);
     expect(first).toHaveClass('chatsanity-moderator-sticky');
@@ -187,6 +190,9 @@ describe('YouTube renderer', () => {
       'chatsanity-moderator-sticky',
       'chatsanity-moderator-sticky-latest',
     );
+    expect(document.documentElement).not.toHaveClass(
+      'chatsanity-moderator-sticky-active',
+    );
   });
 
   it('終了時にモデレーター投稿のsticky表示を解除する', () => {
@@ -199,6 +205,9 @@ describe('YouTube renderer', () => {
     expect(item).not.toHaveClass(
       'chatsanity-moderator-sticky',
       'chatsanity-moderator-sticky-latest',
+    );
+    expect(document.documentElement).not.toHaveClass(
+      'chatsanity-moderator-sticky-active',
     );
   });
 

@@ -1,10 +1,19 @@
+html.chatsanity-moderator-sticky-active #item-offset {
+  overflow: visible !important;
+}
+
+html.chatsanity-moderator-sticky-active #items {
+  transform: none !important;
+}
+
 yt-live-chat-text-message-renderer.chatsanity-moderator-sticky,
 yt-live-chat-paid-message-renderer.chatsanity-moderator-sticky,
 yt-live-chat-membership-item-renderer.chatsanity-moderator-sticky {
   position: sticky !important;
   z-index: 20;
-  top: 0;
+  top: -1px;
   box-sizing: border-box;
+  padding-block: 10px !important;
   background-color: var(--yt-live-chat-background-color, #fff) !important;
   box-shadow: 0 1px 0 rgb(0 0 0 / 12%);
 }

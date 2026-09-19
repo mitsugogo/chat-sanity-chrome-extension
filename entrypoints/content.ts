@@ -451,7 +451,12 @@ export default defineContentScript({
         finalizeFlowAllowed();
         return;
       }
-      renderModeratorSticky(element, settings.enabled && message.isModerator);
+      renderModeratorSticky(
+        element,
+        settings.enabled &&
+          settings.stickyModeratorMessages &&
+          message.isModerator,
+      );
       const normalized = normalizeText(message.text);
       const author = message.authorExternalChannelId ?? message.author;
       const context = {

@@ -41,7 +41,7 @@ Content ScriptはYouTubeのチャットフレームで新着ノードを監視�
 
 ## 状態と保存先
 
-`chrome.storage.sync`へ保存するのは`SettingsV1`だけです。プリセット、閾値、語句、非表示ユーザーとホワイトリストのチャンネルID・表示名、Local AI mode、Chrome内蔵AI・LM Studio設定、Flow Chat連携のON/OFFと除外基準を含み、`schemaVersion: 1`で将来の移行境界を示します。通常のコメント本文・診断履歴・セッション集計は保存しません。
+`chrome.storage.sync`へ保存するのは`SettingsV1`だけです。プリセット、閾値、語句、モデレーター投稿の固定表示、非表示ユーザーとホワイトリストのチャンネルID・表示名、Local AI mode、Chrome内蔵AI・LM Studio設定、Flow Chat連携のON/OFFと除外基準を含み、`schemaVersion: 1`で将来の移行境界を示します。通常のコメント本文・診断履歴・セッション集計は保存しません。
 
 ユーザーが「正しい / 間違い」または「問題コメント」を明示的に送信した場合だけ、`chat-sanity-feedback` IndexedDBへフィードバックを保存します。`feedback`ストアにはその本文、正規化本文、予測・訂正カテゴリ、スコア、アクション、rule ID、feature、判定元、数値の文脈補正と時刻を保存します。`exactMemory`ストアは正規化本文ごとのカテゴリ票を、`ruleStats`ストアはrule IDごとの正解・誤判定・見逃し集計を持ちます。投稿者名・チャンネルID・周辺コメント履歴は保存しません。IndexedDBデータは同期されず、自動外部送信もしません。JSONL出力と全件消去はOptions画面の明示操作からだけ行います。
 
@@ -57,7 +57,7 @@ Flow Chat連携を有効にした場合だけ、Content Scriptが`html.ylcfr-act
 
 Local AIは補助判定であり、必須依存ではありません。Prompt API不存在、モデル未準備、session作成失敗、Abort・Quotaエラー、LM Studioの権限拒否・未起動・HTTPエラー、timeout、不正JSON、非対応レスポンスのいずれでもルール結果へ戻ります。Auto modeではChrome内蔵AI、LM Studio、ルールの順にfallbackし、同じProviderが3回連続で失敗すると30秒間そのProviderを停止します。AI待機によってYouTubeチャット全体を停止させてはいけません。
 
-RendererはYouTubeの元ノードを削除しません。属性とCSSで表示を制御するため、フィルター解除やユーザー操作による原文復元が可能です。`ぼかし`は本文だけ、`非表示`は同じぼかしをアイコンと発言者IDまで広げます。モデレーター投稿には元ノードのままsticky表示を付け、DOM上で最後の投稿を最前面にします。背景色はYouTubeのテーマ用CSS変数を使用し、ライト／ダークテーマに追従します。
+RendererはYouTubeの元ノードを削除しません。属性とCSSで表示を制御するため、フィルター解除やユーザー操作による原文復元が可能です。`ぼかし`は本文だけ、`非表示`は同じぼかしをアイコンと発言者IDまで広げます。設定が有効な場合だけモデレーター投稿へ元ノードのままsticky表示を付け、DOM上で最後の投稿を最前面にします。固定行が存在する間はYouTubeの仮想スクロール用`#item-offset`のoverflowと`#items`のtransformをsticky向けに補正し、固定行がなくなると補正も解除します。設定を無効化した場合は既存のsticky表示も解除します。背景色はYouTubeのテーマ用CSS変数を使用し、ライト／ダークテーマに追従します。
 
 Flow Chat側の連携クラスは`lib/integrations/flow-chat/constants.ts`へ隔離しています。現行の公開DOM契約（`ylcfr-active`、`ylcfr-filtered-message`、`ylcfr-deleted-message`）に依存するため、Flow Chat更新時はこのファイルとプロトコルテストを確認します。
 

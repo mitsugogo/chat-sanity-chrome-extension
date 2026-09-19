@@ -347,6 +347,22 @@ describe('content integration', () => {
       'chatsanity-moderator-sticky',
       'chatsanity-moderator-sticky-latest',
     );
+    expect(document.documentElement).toHaveClass(
+      'chatsanity-moderator-sticky-active',
+    );
+
+    const next = structuredClone(settings);
+    next.stickyModeratorMessages = false;
+    changeSettings(next);
+
+    expect(first).not.toHaveClass('chatsanity-moderator-sticky');
+    expect(latest).not.toHaveClass(
+      'chatsanity-moderator-sticky',
+      'chatsanity-moderator-sticky-latest',
+    );
+    expect(document.documentElement).not.toHaveClass(
+      'chatsanity-moderator-sticky-active',
+    );
   });
 
   it('フィードバック記憶の更新と消去を現在のチャットへ反映する', async () => {

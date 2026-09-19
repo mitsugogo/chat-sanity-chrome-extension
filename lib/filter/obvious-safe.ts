@@ -2,6 +2,8 @@ const CUSTOM_EMOJI = /:[^\s:]+:/gu;
 const EMOJI = /\p{Extended_Pictographic}/gu;
 const PUNCTUATION_ONLY = /^[\s\p{P}\p{S}]+$/u;
 const LAUGHTER_ONLY = /^(?:w|ｗ|草|笑|ha|はは|アハ|あは)+[!！?？〜～ー]*$/iu;
+const REACTION_SUFFIX = /[!！?？。…〜～]+$/u;
+const REPEATED_SURPRISE = /^お{2,}$/u;
 
 const SAFE_REACTIONS = new Set([
   '草',
@@ -13,7 +15,14 @@ const SAFE_REACTIONS = new Set([
   'おつ',
   'おつかれ',
   'お疲れ様',
+  'ん',
+  'はい',
+  'はーい',
+  'は〜い',
+  'は～い',
+  'おお',
   'かわいい',
+  'きゃわ',
   'きた',
   'よし',
   'どんまい',
@@ -27,7 +36,11 @@ const SAFE_REACTIONS = new Set([
 export function isObviouslySafe(text: string): boolean {
   const value = text.trim();
   if (!value) return true;
-  if (SAFE_REACTIONS.has(value.toLocaleLowerCase('ja-JP'))) return true;
+  const reaction = value
+    .toLocaleLowerCase('ja-JP')
+    .replace(REACTION_SUFFIX, '');
+  if (SAFE_REACTIONS.has(reaction)) return true;
+  if (REPEATED_SURPRISE.test(reaction)) return true;
   if (LAUGHTER_ONLY.test(value)) return true;
   if (PUNCTUATION_ONLY.test(value)) return true;
   if (isEmojiOnly(value)) return true;

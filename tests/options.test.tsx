@@ -102,6 +102,9 @@ describe('options', () => {
       screen.getByLabelText('Flow Chat連携を有効にする'),
     ).not.toBeChecked();
     expect(screen.getByLabelText('デバッグモード')).not.toBeChecked();
+    const moderatorStickySwitch =
+      screen.getByLabelText('モデレーター投稿を固定表示');
+    expect(moderatorStickySwitch).toBeChecked();
     expect(screen.getByLabelText('LM Studio')).not.toBeChecked();
     expect(screen.queryByLabelText('エンドポイント')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('モデル')).not.toBeInTheDocument();
@@ -121,6 +124,7 @@ describe('options', () => {
         '抽選と監査上限を使わず全件を送ります。混雑時は古い待機コメントをルール判定へ戻します',
       ).parentElement,
     ).toHaveClass('setting-row__copy');
+    fireEvent.click(moderatorStickySwitch);
     fireEvent.click(allUnmatchedSwitch);
     fireEvent.change(screen.getByLabelText('指示・指示厨の重み'), {
       target: { value: '0.9' },
@@ -129,6 +133,7 @@ describe('options', () => {
     await waitFor(() => expect(mocks.set).toHaveBeenCalled());
     expect(mocks.set).toHaveBeenCalledWith({
       settings: expect.objectContaining({
+        stickyModeratorMessages: false,
         lmStudio: expect.objectContaining({
           zeroScoreAudit: expect.objectContaining({
             enabled: true,

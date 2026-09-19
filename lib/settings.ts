@@ -65,6 +65,7 @@ const profile = (categories: PresetProfile['categories']): PresetProfile => ({
 export const DEFAULT_SETTINGS: SettingsV1 = {
   schemaVersion: 1,
   enabled: true,
+  stickyModeratorMessages: true,
   debugMode: false,
   activePreset: 'event',
   profiles: {
@@ -159,6 +160,10 @@ export function normalizeSettings(value: unknown): SettingsV1 {
       typeof partial.enabled === 'boolean'
         ? partial.enabled
         : DEFAULT_SETTINGS.enabled,
+    stickyModeratorMessages:
+      typeof partial.stickyModeratorMessages === 'boolean'
+        ? partial.stickyModeratorMessages
+        : DEFAULT_SETTINGS.stickyModeratorMessages,
     activePreset: isPresetId(partial.activePreset)
       ? partial.activePreset
       : DEFAULT_SETTINGS.activePreset,

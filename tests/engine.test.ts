@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { AuditSampler } from '../lib/filter/audit-sampler';
 import { actionForScore, createFilterEngine } from '../lib/filter/engine';
+import { normalizeText } from '../lib/filter/normalize';
 import { DEFAULT_SETTINGS } from '../lib/settings';
 import type { ChatMessage, SettingsV1 } from '../lib/types';
 
@@ -229,6 +231,41 @@ describe('filter engine', () => {
       ruleDisposition: 'explicit-safe',
       needsAi: false,
     });
+  });
+
+  it.each([
+    '草',
+    'ん？',
+    'はーい！',
+    'おお',
+    'おおお！',
+    'かわいい',
+    'きゃわ〜',
+  ])('短い定型リアクション「%s」は全件AIチェック時も明示安全にする', (text) => {
+    const value = settings();
+    value.localAiMode = 'lm-studio';
+    value.lmStudio.enabled = true;
+    value.lmStudio.model = 'local';
+    value.lmStudio.zeroScoreAudit.enabled = true;
+    value.lmStudio.zeroScoreAudit.checkAllUnmatched = true;
+    const result = createFilterEngine()(createMessage(text), value);
+
+    expect(result).toMatchObject({
+      score: 0,
+      action: 'allow',
+      categories: ['safe'],
+      reasons: ['明らかなリアクション'],
+      ruleDisposition: 'explicit-safe',
+      needsAi: false,
+    });
+    expect(
+      new AuditSampler(() => 0).evaluate({
+        normalized: normalizeText(text),
+        base: result,
+        settings: value,
+        now: 1_000,
+      }),
+    ).toMatchObject({ eligible: false, shouldAudit: false });
   });
 
   it('制止を促す表現を低確信の指示候補として判定する', () => {

@@ -22,6 +22,7 @@ describe('AI settings migration', () => {
       },
     });
     expect(settings.debugMode).toBe(false);
+    expect(settings.stickyModeratorMessages).toBe(true);
     expect(settings.localAiMode).toBe('auto');
     expect(settings.chromeBuiltIn).toEqual({ enabled: true });
     expect(settings.flowChat).toEqual({
@@ -32,6 +33,15 @@ describe('AI settings migration', () => {
     });
     expect(settings.hiddenUsers).toEqual([]);
     expect(settings.whitelistedUsers).toEqual([]);
+  });
+
+  it('モデレーター投稿の固定設定を保持する', () => {
+    expect(
+      normalizeSettings({
+        schemaVersion: 1,
+        stickyModeratorMessages: false,
+      }).stickyModeratorMessages,
+    ).toBe(false);
   });
 
   it('非表示ユーザーとホワイトリストを補完し重複時はホワイトリストを優先する', () => {

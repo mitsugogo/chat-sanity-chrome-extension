@@ -45,6 +45,31 @@
     "reason": "定型リアクション"
   },
   {
+    "text": "ん？",
+    "expected": "safe",
+    "reason": "短い疑問リアクション"
+  },
+  {
+    "text": "はーい！",
+    "expected": "safe",
+    "reason": "短い返事"
+  },
+  {
+    "text": "おお",
+    "expected": "safe",
+    "reason": "短い驚きリアクション"
+  },
+  {
+    "text": "かわいい",
+    "expected": "safe",
+    "reason": "肯定的なリアクション"
+  },
+  {
+    "text": "きゃわ",
+    "expected": "safe",
+    "reason": "肯定的なリアクション"
+  },
+  {
     "text": "みこちは説明が下手なんだ",
     "expected": "personal_attack"
   },
