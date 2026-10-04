@@ -62,9 +62,7 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
 }
 
 .chatsanity-hidden
-  > :not(.chatsanity-debug-score):not(.chatsanity-ai-status):not(
-    .chatsanity-feedback-controls
-  ) {
+  > :not(.chatsanity-debug-score):not(.chatsanity-feedback-controls) {
   opacity: 0.45 !important;
   filter: blur(5px) !important;
   pointer-events: none !important;
@@ -75,9 +73,7 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
 }
 
 .chatsanity-hidden.chatsanity-revealed
-  > :not(.chatsanity-debug-score):not(.chatsanity-ai-status):not(
-    .chatsanity-feedback-controls
-  ) {
+  > :not(.chatsanity-debug-score):not(.chatsanity-feedback-controls) {
   opacity: 1 !important;
   filter: none !important;
   pointer-events: auto !important;
@@ -89,8 +85,7 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
   pointer-events: auto !important;
 }
 
-.chatsanity-debug-score,
-.chatsanity-ai-status {
+.chatsanity-debug-score {
   display: inline-block;
   margin-left: 5px;
   color: currentColor;
@@ -149,42 +144,6 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
   outline-offset: 1px;
 }
 
-.chatsanity-feedback-chooser {
-  position: absolute;
-  z-index: 1;
-  top: calc(100% + 3px);
-  right: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px 6px;
-  width: min(230px, 72vw);
-  margin: 0;
-  padding: 5px;
-  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
-}
-
-.chatsanity-feedback-chooser legend {
-  width: 100%;
-  padding: 0;
-  font-size: 9px;
-}
-
-.chatsanity-feedback-chooser label {
-  display: inline-flex;
-  gap: 2px;
-  align-items: center;
-  cursor: pointer;
-}
-
-.chatsanity-feedback-chooser input {
-  width: 11px;
-  height: 11px;
-  margin: 0;
-}
-
 .chatsanity-feedback-error {
   color: #c85757;
 }
@@ -194,20 +153,10 @@ yt-live-chat-membership-item-renderer.chatsanity-dim {
   font-weight: 700;
 }
 
-.chatsanity-ai-status {
-  margin: 4px 12px;
-  padding: 2px 6px;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  font-size: 10px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .chatsanity-blur #message,
   .chatsanity-hidden
-    > :not(.chatsanity-debug-score):not(.chatsanity-ai-status):not(
-      .chatsanity-feedback-controls
-    ) {
+    > :not(.chatsanity-debug-score):not(.chatsanity-feedback-controls) {
     transition: none;
   }
 }

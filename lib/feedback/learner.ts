@@ -4,7 +4,7 @@ import type {
   FeedbackEntry,
   FeedbackExactMemory,
 } from './types';
-import { FILTER_CATEGORIES } from './types';
+import { FILTER_CATEGORIES, isCategorizedFeedbackEntry } from './types';
 
 const MIN_EXACT_CONFIDENCE = 0.6;
 
@@ -34,6 +34,8 @@ export function addToExactMemory(
   current: FeedbackExactMemory | undefined,
   entry: FeedbackEntry,
 ): FeedbackExactMemory {
+  if (!isCategorizedFeedbackEntry(entry))
+    throw new Error('未分類のNGはExact Memoryへ追加できません。');
   const categoryCounts = { ...(current?.categoryCounts ?? {}) };
   categoryCounts[entry.correctCategory] =
     (categoryCounts[entry.correctCategory] ?? 0) + 1;

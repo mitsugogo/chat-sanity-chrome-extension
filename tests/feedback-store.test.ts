@@ -4,7 +4,7 @@ import { createFeedbackEntry, type FeedbackEntry } from '../lib/feedback/types';
 
 function entry(
   id: string,
-  correctCategory: FeedbackEntry['correctCategory'] = 'safe',
+  correctCategory: NonNullable<FeedbackEntry['correctCategory']> = 'safe',
 ): FeedbackEntry {
   return {
     id,
@@ -20,6 +20,12 @@ function entry(
     features: ['imperative'],
     createdAt: Number(id.replace('feedback-', '')),
   };
+}
+
+function pendingEntry(id: string): FeedbackEntry {
+  const pending: FeedbackEntry = { ...entry(id), judgement: 'pending' };
+  delete pending.correctCategory;
+  return pending;
 }
 
 describe('feedback store contract', () => {
@@ -82,6 +88,67 @@ describe('feedback store contract', () => {
         incorrect: 1,
         falsePositive: 1,
       }),
+    ]);
+  });
+
+  it('未分類NGは学習せず、振り分け後にだけmemoryと統計へ反映する', async () => {
+    const store = new InMemoryFeedbackStore();
+    const added = await store.add(pendingEntry('feedback-2'));
+
+    expect(added.exactMemory).toBeUndefined();
+    expect(added.feedbackStats).toEqual([]);
+    expect(await store.lookupExact('いけー!')).toBeNull();
+    expect(await store.listRuleStats()).toEqual([]);
+    expect(await store.summary()).toEqual({
+      total: 1,
+      pending: 1,
+      correct: 0,
+      incorrect: 0,
+      missed: 0,
+    });
+
+    const categorized = await store.categorize('feedback-2', 'safe');
+
+    expect(categorized.exactMemory).toMatchObject({
+      normalizedText: 'いけー!',
+      categoryCounts: { safe: 1 },
+      sampleCount: 1,
+    });
+    expect(await store.list()).toEqual([
+      expect.objectContaining({
+        id: 'feedback-2',
+        judgement: 'incorrect',
+        correctCategory: 'safe',
+      }),
+    ]);
+    expect(await store.lookupExact('いけー!')).toEqual({
+      category: 'safe',
+      confidence: 1,
+      sampleCount: 1,
+    });
+    expect(await store.listRuleStats()).toEqual([
+      expect.objectContaining({ incorrect: 1, falsePositive: 1 }),
+    ]);
+  });
+
+  it('表示されていた安全判定のNGは振り分け後に見逃しとして扱う', async () => {
+    const store = new InMemoryFeedbackStore();
+    const pending = pendingEntry('feedback-3');
+    pending.predictedCategory = 'safe';
+    pending.predictedScore = 0;
+    pending.predictedAction = 'allow';
+    await store.add(pending);
+
+    await store.categorize('feedback-3', 'blame');
+
+    expect(await store.list()).toEqual([
+      expect.objectContaining({
+        judgement: 'missed',
+        correctCategory: 'blame',
+      }),
+    ]);
+    expect(await store.listRuleStats()).toEqual([
+      expect.objectContaining({ falseNegative: 1 }),
     ]);
   });
 

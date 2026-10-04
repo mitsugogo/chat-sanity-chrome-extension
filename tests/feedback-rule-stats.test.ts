@@ -3,7 +3,7 @@ import { updateRuleFeedbackStats } from '../lib/feedback/rule-stats';
 import type { FeedbackEntry } from '../lib/feedback/types';
 
 function entry(
-  judgement: FeedbackEntry['judgement'],
+  judgement: Exclude<FeedbackEntry['judgement'], 'pending'>,
   id: string,
 ): FeedbackEntry {
   return {

@@ -250,12 +250,10 @@ describe('YouTube renderer', () => {
     expect(item).toHaveClass('chatsanity-revealed');
   });
 
-  it('デバッグ時だけAI検閲中ラベルと判定スコアを表示する', () => {
+  it('デバッグ時もAI判定中ラベルを表示せず判定後のスコアだけを表示する', () => {
     const item = findChatItems(createChatItem())[0]!;
-    renderPending(item, true);
-    expect(item.querySelector('.chatsanity-ai-status')).toHaveTextContent(
-      'AI検閲中',
-    );
+    renderPending(item);
+    expect(item.textContent).not.toContain('AI検閲中');
     renderResult(
       item,
       {
@@ -269,7 +267,7 @@ describe('YouTube renderer', () => {
       undefined,
       true,
     );
-    expect(item.querySelector('.chatsanity-ai-status')).not.toBeInTheDocument();
+    expect(item.textContent).not.toContain('AI検閲中');
     expect(item.querySelector('.chatsanity-debug-score')).toHaveTextContent(
       '0.72',
     );
@@ -314,7 +312,6 @@ describe('YouTube renderer', () => {
         timestamp: 1,
       },
       true,
-      false,
       { onSubmit: async () => undefined },
     );
 

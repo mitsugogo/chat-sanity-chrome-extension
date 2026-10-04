@@ -38,6 +38,7 @@ export function updateRuleFeedbackStats(
 export function summarizeFeedback(entries: FeedbackEntry[]): FeedbackSummary {
   const summary: FeedbackSummary = {
     total: entries.length,
+    pending: 0,
     correct: 0,
     incorrect: 0,
     missed: 0,

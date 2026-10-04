@@ -16,6 +16,8 @@ export interface ClassificationBatchQueueOptions {
   maxBatchSize?: number;
   maxPendingBatches?: number;
   maxQueueAgeMs?: number;
+  flushOnFull?: boolean;
+  minRestMs?: number;
   now?: () => number;
 }
 
@@ -42,6 +44,9 @@ export class ClassificationBatchQueue {
   private readonly maxBatchSize: number;
   private readonly maxPendingItems: number;
   private readonly maxQueueAgeMs: number;
+  private readonly flushOnFull: boolean;
+  private readonly minRestMs: number;
+  private nextAllowedAt = 0;
   private readonly now: () => number;
 
   constructor(
@@ -54,6 +59,8 @@ export class ClassificationBatchQueue {
     this.maxBatchSize = options.maxBatchSize ?? 20;
     this.maxPendingItems = this.maxBatchSize * (options.maxPendingBatches ?? 1);
     this.maxQueueAgeMs = options.maxQueueAgeMs ?? 1_250;
+    this.flushOnFull = options.flushOnFull ?? true;
+    this.minRestMs = options.minRestMs ?? 0;
     this.now = options.now ?? Date.now;
   }
 
@@ -68,16 +75,22 @@ export class ClassificationBatchQueue {
       this.queue.push({ item, enqueuedAt: this.now(), resolve, reject });
     });
     if (this.running) return promise;
-    if (this.queue.length >= this.maxBatchSize) {
-      void this.flush();
-    } else if (!this.timer) {
-      this.timer = setTimeout(() => void this.flush(), this.windowMs);
-    }
+    if (this.flushOnFull && this.queue.length >= this.maxBatchSize) {
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = undefined;
+      this.scheduleNext();
+    } else if (!this.timer) this.scheduleNext();
     return promise;
   }
 
   async flush(): Promise<void> {
     if (this.running || this.disposed) return;
+    const restMs = this.nextAllowedAt - this.now();
+    if (restMs > 0) {
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = setTimeout(() => void this.flush(), restMs);
+      return;
+    }
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     const candidates = this.queue.splice(0, this.maxBatchSize);
@@ -104,6 +117,7 @@ export class ClassificationBatchQueue {
     } catch (error) {
       for (const pending of batch) pending.reject(error);
     } finally {
+      this.nextAllowedAt = this.now() + this.minRestMs;
       this.running = false;
       this.scheduleNext();
     }
@@ -119,11 +133,16 @@ export class ClassificationBatchQueue {
   }
 
   private scheduleNext(): void {
-    if (this.disposed || this.queue.length === 0) return;
-    if (this.queue.length >= this.maxBatchSize) {
+    if (this.disposed || this.running || this.queue.length === 0) return;
+    const full = this.flushOnFull && this.queue.length >= this.maxBatchSize;
+    const restMs = Math.max(0, this.nextAllowedAt - this.now());
+    if (full && restMs === 0) {
       void this.flush();
       return;
     }
-    this.timer = setTimeout(() => void this.flush(), this.windowMs);
+    this.timer = setTimeout(
+      () => void this.flush(),
+      Math.max(full ? 0 : this.windowMs, restMs),
+    );
   }
 }

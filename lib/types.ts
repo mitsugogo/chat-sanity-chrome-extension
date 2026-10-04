@@ -243,6 +243,11 @@ export type RuntimeMessage =
   | { type: 'debug:clear' }
   | { type: 'debug:clear-frame' }
   | { type: 'feedback:add'; entry: FeedbackEntry }
+  | {
+      type: 'feedback:categorize';
+      id: string;
+      correctCategory: FilterCategory;
+    }
   | { type: 'feedback:list' }
   | { type: 'feedback:stats' }
   | { type: 'feedback:exact-list' }
@@ -290,7 +295,7 @@ export type RuntimeResponse =
   | { ok: true; safeFingerprints: string[] }
   | {
       ok: true;
-      exactMemory: FeedbackExactMemory;
+      exactMemory?: FeedbackExactMemory;
       feedbackStats: RuleFeedbackStats[];
     }
   | { ok: true; jsonl: string }

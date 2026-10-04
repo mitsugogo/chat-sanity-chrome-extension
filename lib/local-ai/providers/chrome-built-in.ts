@@ -1,8 +1,8 @@
 import type { LmClassificationItem, LmClassificationResult } from '../../types';
 import {
-  CLASSIFICATION_SYSTEM_PROMPT,
+  CHROME_CLASSIFICATION_SYSTEM_PROMPT,
   createClassificationInput,
-  createClassificationSchema,
+  createChromeClassificationSchema,
 } from '../prompt';
 import type { LocalAiAvailability, LocalAiProvider } from '../types';
 import { CHROME_BUILT_IN_MAX_BATCH_SIZE } from '../load-policy';
@@ -38,7 +38,10 @@ interface LanguageModelApiLike {
 }
 
 export const CHROME_BUILT_IN_INFERENCE_TIMEOUT_MS = 10_000;
+export const CHROME_BUILT_IN_FAILURE_COOLDOWN_MS = 5 * 60_000;
 export const MODEL_OPTIONS = {
+  topK: 1,
+  temperature: 0,
   expectedInputs: [{ type: 'text', languages: ['en', 'ja'] }],
   expectedOutputs: [{ type: 'text', languages: ['en'] }],
 } as const;
@@ -77,7 +80,9 @@ export async function prepareChromeBuiltInAi(
   }
   const session = await api.create({
     ...MODEL_OPTIONS,
-    initialPrompts: [{ role: 'system', content: CLASSIFICATION_SYSTEM_PROMPT }],
+    initialPrompts: [
+      { role: 'system', content: CHROME_CLASSIFICATION_SYSTEM_PROMPT },
+    ],
     monitor(monitor) {
       monitor.addEventListener('downloadprogress', (event) => {
         const ratio =
@@ -94,6 +99,8 @@ export async function prepareChromeBuiltInAi(
 
 const TIMEOUT_MESSAGE = 'Chrome内蔵AIの応答がタイムアウトしました。';
 const ABORTED_MESSAGE = 'Chrome内蔵AIの実行が中断されました。';
+const COOLDOWN_MESSAGE =
+  'Chrome内蔵AIで異常が発生したため、5分間ルール判定を使用します。';
 
 export class ChromeBuiltInAiProvider implements LocalAiProvider {
   readonly id = 'chrome-built-in' as const;
@@ -101,12 +108,14 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
   private baseSession: LanguageModelSessionLike | undefined;
   private baseSessionPromise: Promise<LanguageModelSessionLike> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
+  private suspendedUntil = 0;
 
   constructor(
     private readonly timeoutMs = CHROME_BUILT_IN_INFERENCE_TIMEOUT_MS,
   ) {}
 
   getAvailability(): Promise<LocalAiAvailability> {
+    if (this.isSuspended()) return Promise.resolve('unavailable');
     return getChromeBuiltInAvailability();
   }
 
@@ -118,9 +127,6 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
       throw new Error(
         `Chrome内蔵AIの分類バッチは1〜${this.maxBatchSize}件です。`,
       );
-    }
-    if ((await this.getAvailability()) !== 'available') {
-      throw new Error('Chrome内蔵AIはまだ利用可能ではありません。');
     }
     return this.enqueue(() => this.classifyExclusive(items, options));
   }
@@ -142,22 +148,15 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
     items: LmClassificationItem[],
     options?: { signal?: AbortSignal },
   ): Promise<LmClassificationResult[]> {
+    if (this.isSuspended()) throw new Error(COOLDOWN_MESSAGE);
     const { signal, cleanup } = timeoutSignal(this.timeoutMs, options?.signal);
     try {
-      try {
-        return await this.classifyWithSession(items, signal);
-      } catch (error) {
-        if (
-          !options?.signal?.aborted &&
-          !signal.aborted &&
-          isRetryableSessionError(error)
-        ) {
-          this.resetBaseSession();
-          return await this.classifyWithSession(items, signal);
-        }
-        throw error;
-      }
+      return await this.classifyWithSession(items, signal);
     } catch (error) {
+      if (!options?.signal?.aborted) {
+        this.suspendedUntil = Date.now() + CHROME_BUILT_IN_FAILURE_COOLDOWN_MS;
+        this.resetBaseSession();
+      }
       throw toChromeAiError(error, signal.aborted && !options?.signal?.aborted);
     } finally {
       cleanup();
@@ -178,7 +177,7 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
       session = await base.clone();
       throwIfAborted(signal);
       const raw = await session.prompt(createClassificationInput(items), {
-        responseConstraint: createClassificationSchema(items.length),
+        responseConstraint: createChromeClassificationSchema(items.length),
         omitResponseConstraintInput: true,
         signal,
       });
@@ -213,6 +212,10 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
       );
   }
 
+  private isSuspended(): boolean {
+    return this.suspendedUntil > Date.now();
+  }
+
   private async ensureBaseSession(): Promise<LanguageModelSessionLike> {
     if (this.baseSession) return this.baseSession;
     if (this.baseSessionPromise) return this.baseSessionPromise;
@@ -221,7 +224,7 @@ export class ChromeBuiltInAiProvider implements LocalAiProvider {
     this.baseSessionPromise = api.create({
       ...MODEL_OPTIONS,
       initialPrompts: [
-        { role: 'system', content: CLASSIFICATION_SYSTEM_PROMPT },
+        { role: 'system', content: CHROME_CLASSIFICATION_SYSTEM_PROMPT },
       ],
     });
     try {
@@ -258,6 +261,7 @@ function throwIfAborted(signal: AbortSignal): void {
 function toChromeAiError(error: unknown, timedOut: boolean): Error {
   if (timedOut) return new Error(TIMEOUT_MESSAGE);
   if (isRetryableSessionError(error)) return new Error(ABORTED_MESSAGE);
+  if (error instanceof DOMException) return new Error(error.message);
   return error instanceof Error
     ? error
     : new Error('Chrome内蔵AIの分類に失敗しました。');

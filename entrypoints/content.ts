@@ -22,7 +22,6 @@ import {
   createFeedbackEntry,
   FEEDBACK_MEMORY_PORT_NAME,
   isFeedbackMemoryPortMessage,
-  type FeedbackJudgement,
 } from '../lib/feedback/types';
 import { CATEGORY_LABELS } from '../lib/settings';
 import { isLocalAiConfigured } from '../lib/settings';
@@ -58,6 +57,9 @@ import {
   parseChatMessage,
 } from '../lib/youtube/adapter';
 import { ChatProcessingTracker } from '../lib/youtube/processing-tracker';
+import { trimChatItems } from '../lib/youtube/chat-retention';
+import { findChatContainer } from '../lib/youtube/chat-dom';
+import { startLiveChatRecovery } from '../lib/youtube/live-chat-recovery';
 import {
   clearModeratorSticky,
   refreshLatestModeratorSticky,
@@ -265,10 +267,12 @@ export default defineContentScript({
         }));
       };
       return new ClassificationBatchQueue(classify, {
-        windowMs: settings.lmStudio.batchWindowMs,
+        windowMs: loadPolicy.batchWindowMs,
         maxBatchSize: loadPolicy.maxBatchSize,
         maxPendingBatches: loadPolicy.maxPendingBatches,
         maxQueueAgeMs: loadPolicy.maxQueueAgeMs,
+        flushOnFull: loadPolicy.flushOnFull,
+        minRestMs: loadPolicy.minRestMs,
       });
     };
     let queue = createQueue();
@@ -527,16 +531,11 @@ export default defineContentScript({
         recentRiskyMessages: recentRisk.recent(message.timestamp),
         sessionBoost: restriction.boost(author),
       };
-      const submitFeedback = async (
-        diagnostic: DiagnosticEntry,
-        judgement: FeedbackJudgement,
-        correctCategory: DiagnosticEntry['category'],
-      ) => {
+      const submitFeedback = async (diagnostic: DiagnosticEntry) => {
         const entry = createFeedbackEntry({
           diagnostic,
           normalizedText: diagnostic.normalizedText ?? normalized,
-          judgement,
-          correctCategory,
+          judgement: 'pending',
           messageId: message.id,
           conflictLevel: context.conflictLevel,
         });
@@ -545,13 +544,12 @@ export default defineContentScript({
           entry,
         })) as RuntimeResponse;
         if (!response.ok) throw new Error(response.error);
-        if ('exactMemory' in response)
+        if ('exactMemory' in response && response.exactMemory)
           feedbackLearner.observeMemory(response.exactMemory);
       };
       const renderDiagnostic = (
         result: FilterResult,
         diagnostic: DiagnosticEntry,
-        aiPending = false,
       ) => {
         if (settings.debugMode) {
           const feedbackHandlers =
@@ -561,22 +559,12 @@ export default defineContentScript({
             message.isPaidMessage
               ? undefined
               : {
-                  onSubmit: (
-                    judgement: FeedbackJudgement,
-                    correctCategory: DiagnosticEntry['category'],
-                  ) => submitFeedback(diagnostic, judgement, correctCategory),
+                  onSubmit: () => submitFeedback(diagnostic),
                 };
-          renderResult(
-            element,
-            result,
-            diagnostic,
-            true,
-            aiPending,
-            feedbackHandlers,
-          );
+          renderResult(element, result, diagnostic, true, feedbackHandlers);
           return;
         }
-        renderResult(element, result, diagnostic, false, aiPending);
+        renderResult(element, result, diagnostic);
       };
       let base: FilterResult;
       try {
@@ -732,7 +720,7 @@ export default defineContentScript({
         return;
       }
 
-      renderPending(element, settings.debugMode);
+      renderPending(element);
       let settled = false;
       const fallbackTimer = window.setTimeout(() => {
         if (settled || !processing.isCurrent(token)) return;
@@ -767,7 +755,7 @@ export default defineContentScript({
           classifierPromptVersion: CLASSIFIER_PROMPT_VERSION,
           timestamp: message.timestamp,
         };
-        renderDiagnostic(base, fallbackEntry, true);
+        renderDiagnostic(base, fallbackEntry);
         record(fallbackEntry);
       }, settings.lmStudio.timeoutMs);
 
@@ -903,22 +891,62 @@ export default defineContentScript({
       await Promise.all(itemTasks);
     };
 
-    const root = document.querySelector('#items') ?? document.documentElement;
+    let root: HTMLElement | null = null;
+    const trimCurrentChat = () => {
+      return trimChatItems(root);
+    };
     const observer = new MutationObserver((mutations) => {
+      if (
+        mutations.some(
+          (mutation) =>
+            mutation.type === 'childList' && mutation.addedNodes.length > 0,
+        )
+      )
+        trimCurrentChat();
       for (const mutation of mutations) {
-        void scan(mutation.target);
-        for (const node of mutation.addedNodes) void scan(node);
+        if (
+          mutation.target.isConnected &&
+          (mutation.type === 'characterData' ||
+            (mutation.target instanceof HTMLElement &&
+              mutation.target.closest(CHAT_ITEM_SELECTOR)))
+        )
+          void scan(mutation.target);
+        for (const node of mutation.addedNodes) {
+          if (node.isConnected) void scan(node);
+        }
       }
       refreshLatestModeratorSticky();
     });
-    observer.observe(root, {
+    const bindChatRoot = () => {
+      const nextRoot = findChatContainer(document);
+      if (root === nextRoot) return;
+      observer.disconnect();
+      processing.reset();
+      root = nextRoot;
+      if (!root) return;
+      observer.observe(root, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+      trimCurrentChat();
+      void scan(root);
+    };
+    // Mode switches recreate #items. Keep the detailed observer on the current
+    // list and use a child-list-only observer to follow replacements.
+    const rootObserver = new MutationObserver(bindChatRoot);
+    rootObserver.observe(document.documentElement, {
       childList: true,
-      characterData: true,
       subtree: true,
     });
     if (settings.flowChat.enabled) flowBridge.activate();
     else flowBridge.deactivate();
-    await scan(root);
+    bindChatRoot();
+    if (root) await scan(root);
+    const stopChatRecovery = startLiveChatRecovery(
+      document,
+      () => settings.enabled,
+    );
     publishSummary();
 
     const unsubscribe = subscribeSettings((next) => {
@@ -962,7 +990,7 @@ export default defineContentScript({
         .forEach((item) => {
           resetRenderedItem(item);
         });
-      void scan(root);
+      if (root) void scan(root);
       publishFlowMetrics();
     });
 
@@ -984,6 +1012,8 @@ export default defineContentScript({
       flowBridge.deactivate();
       flowMetrics.clear();
       clearModeratorSticky();
+      stopChatRecovery();
+      rootObserver.disconnect();
       observer.disconnect();
       unsubscribe();
       void sendRuntimeMessage({ type: 'flow:metrics-clear-frame' }).catch(

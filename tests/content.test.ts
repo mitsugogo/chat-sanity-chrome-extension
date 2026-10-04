@@ -8,6 +8,7 @@ import {
   vi,
 } from 'vitest';
 import { DEFAULT_SETTINGS } from '../lib/settings';
+import { MAX_VISIBLE_CHAT_ITEMS } from '../lib/youtube/chat-retention';
 import type { RuntimeMessage, RuntimeResponse, SettingsV1 } from '../lib/types';
 
 const mocks = vi.hoisted(() => ({
@@ -100,7 +101,8 @@ beforeEach(() => {
       disconnect: vi.fn(),
     };
   });
-  document.body.innerHTML = '<div id="items"></div>';
+  document.body.innerHTML =
+    '<yt-live-chat-item-list-renderer><div id="items"></div></yt-live-chat-item-list-renderer>';
 });
 afterEach(() => {
   invalidate?.();
@@ -157,6 +159,100 @@ function changeSettings(next: SettingsV1) {
 }
 
 describe('content integration', () => {
+  it('起動時と追加時にチャット一覧を直近500行へ抑える', async () => {
+    settings.lmStudio.enabled = false;
+    const container = document.querySelector('#items');
+    if (!container) throw new Error('chat container missing');
+    for (let index = 0; index <= MAX_VISIBLE_CHAT_ITEMS; index += 1) {
+      const item = document.createElement(
+        'yt-live-chat-viewer-engagement-message-renderer',
+      );
+      item.id = `old-${index}`;
+      container.append(item);
+    }
+
+    await start();
+    expect(container.children).toHaveLength(MAX_VISIBLE_CHAT_ITEMS);
+    expect(container.querySelector('#old-0')).toBeNull();
+    expect(container.querySelector('#old-1')).not.toBeNull();
+
+    const newest = append('newest', 'こんにちは');
+    await Promise.resolve();
+    expect(container.children).toHaveLength(MAX_VISIBLE_CHAT_ITEMS);
+    expect(container.querySelector('#old-1')).toBeNull();
+    expect(newest).toHaveAttribute('data-chatsanity-action', 'allow');
+  });
+
+  it('監視開始後にチャット一覧が生成されても上限を適用する', async () => {
+    settings.lmStudio.enabled = false;
+    document.body.innerHTML = '';
+    await start();
+
+    const container = document.createElement('div');
+    container.id = 'items';
+    for (let index = 0; index <= MAX_VISIBLE_CHAT_ITEMS; index += 1) {
+      const item = document.createElement(
+        'yt-live-chat-viewer-engagement-message-renderer',
+      );
+      item.id = `late-${index}`;
+      container.append(item);
+    }
+    const panel = document.createElement('yt-live-chat-item-list-renderer');
+    panel.append(container);
+    document.body.append(panel);
+    await Promise.resolve();
+
+    expect(container.children).toHaveLength(MAX_VISIBLE_CHAT_ITEMS);
+    expect(container.querySelector('#late-0')).toBeNull();
+  });
+
+  it('モード切り替えで一覧が置き換わっても新着の判定と上限を維持する', async () => {
+    settings.lmStudio.enabled = false;
+    const oldItem = append('before-switch', 'こんにちは');
+    await start();
+    const oldContainer = document.querySelector('#items');
+    if (!oldContainer) throw new Error('chat container missing');
+    const replacement = document.createElement('div');
+    replacement.id = 'items';
+    oldContainer.replaceWith(replacement);
+    const first = append('after-switch', '死ね');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(oldItem.isConnected).toBe(false);
+    expect(first).toHaveClass('chatsanity-hidden');
+    for (let index = 0; index < MAX_VISIBLE_CHAT_ITEMS; index += 1) {
+      append(`after-${index}`, 'こんにちは');
+    }
+    await Promise.resolve();
+    expect(replacement.children).toHaveLength(MAX_VISIBLE_CHAT_ITEMS);
+    expect(first.isConnected).toBe(false);
+    expect(replacement.lastElementChild).toHaveAttribute(
+      'data-chatsanity-action',
+      'allow',
+    );
+    invalidate?.();
+    const afterStop = append('after-stop', '死ね');
+    await Promise.resolve();
+    expect(afterStop).not.toHaveAttribute('data-chatsanity-action');
+  });
+
+  it('フィルターのDOM更新をチャット新着として再判定しない', async () => {
+    settings.lmStudio.enabled = false;
+    const item = append('stable-list', '死ね');
+    await start();
+    const updates = mocks.sendMessage.mock.calls.filter(
+      ([message]) => message.type === 'session:update',
+    ).length;
+    item.append(document.createElement('span'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      mocks.sendMessage.mock.calls.filter(
+        ([message]) => message.type === 'session:update',
+      ),
+    ).toHaveLength(updates);
+  });
+
   it('Flow Chat連携は安全な行もfilteredで確定し危険な行を除外する', async () => {
     settings.flowChat.enabled = true;
     settings.lmStudio.enabled = false;
@@ -292,7 +388,7 @@ describe('content integration', () => {
     );
   });
 
-  it('デバッグ中の表示コメントを見逃しとしてフィードバック保存できる', async () => {
+  it('デバッグ中のNGをカテゴリ選択なしで未分類保存できる', async () => {
     settings.debugMode = true;
     settings.lmStudio.enabled = false;
     const item = append('feedback-item', 'こんにちは');
@@ -302,16 +398,8 @@ describe('content integration', () => {
       (button) => button.textContent === 'NG',
     );
     if (!report) throw new Error('missed feedback button missing');
-    expect(report).toHaveAttribute('aria-label', '問題コメントとして報告');
+    expect(report).toHaveAttribute('aria-label', 'NGとして記録');
     report.click();
-    const blame = item.querySelector<HTMLInputElement>('input[value="blame"]');
-    if (!blame) throw new Error('blame category input missing');
-    blame.click();
-    const submit = Array.from(item.querySelectorAll('button')).find(
-      (button) => button.textContent === 'このカテゴリで記録',
-    );
-    if (!submit) throw new Error('feedback submit button missing');
-    submit.click();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -321,11 +409,18 @@ describe('content integration', () => {
         entry: expect.objectContaining({
           text: 'こんにちは',
           normalizedText: 'こんにちは',
-          judgement: 'missed',
-          correctCategory: 'blame',
+          judgement: 'pending',
         }),
       }),
     );
+    const feedbackRequest = mocks.sendMessage.mock.calls.find(
+      ([message]) => message.type === 'feedback:add',
+    )?.[0];
+    expect(feedbackRequest).toBeDefined();
+    if (feedbackRequest?.type === 'feedback:add')
+      expect(feedbackRequest.entry).not.toHaveProperty('correctCategory');
+    expect(item.querySelector('fieldset')).not.toBeInTheDocument();
+    expect(item).toHaveTextContent('✓');
   });
 
   it('モデレーター・本人・スーパーチャットは判定せずNGボタンも表示しない', async () => {
@@ -446,23 +541,19 @@ describe('content integration', () => {
       '回復した方がいい',
     );
   });
-  it('デバッグ時はAI待機ラベルを残し、遅い結果で更新する', async () => {
+  it('デバッグ時もAI待機ラベルを表示せず、遅い結果でスコアを更新する', async () => {
     settings.debugMode = true;
     const item = append('slow-ai');
     await start();
-    expect(item.querySelector('.chatsanity-ai-status')).toHaveTextContent(
-      'AI検閲中',
-    );
+    expect(item.textContent).not.toContain('AI検閲中');
     await vi.advanceTimersByTimeAsync(500);
-    expect(item.querySelector('.chatsanity-ai-status')).toHaveTextContent(
-      'AI検閲中',
-    );
+    expect(item.textContent).not.toContain('AI検閲中');
     expect(item.querySelector('.chatsanity-debug-score')).toHaveTextContent(
       '0.42',
     );
     resolveRequest(0, 0.4);
     await vi.advanceTimersByTimeAsync(0);
-    expect(item.querySelector('.chatsanity-ai-status')).not.toBeInTheDocument();
+    expect(item.textContent).not.toContain('AI検閲中');
     expect(item.querySelector('.chatsanity-debug-score')).toHaveTextContent(
       '0.40',
     );
@@ -531,9 +622,7 @@ describe('content integration', () => {
 
     const expired = append('queue-expired', '回復した方がいい');
     await vi.advanceTimersByTimeAsync(1_251);
-    expect(expired.querySelector('.chatsanity-ai-status')).toHaveTextContent(
-      'AI検閲中',
-    );
+    expect(expired.textContent).not.toContain('AI検閲中');
 
     resolveRequest(0, 0.4);
     await vi.advanceTimersByTimeAsync(0);
@@ -678,7 +767,7 @@ describe('content integration', () => {
     await start();
 
     expect(item).toHaveClass('chatsanity-pending');
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(500);
     expect(requests).toHaveLength(1);
     expect(requests[0]?.request.items).toEqual([
       expect.objectContaining({ text: '未知の本文です' }),

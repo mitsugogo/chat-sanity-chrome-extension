@@ -7,7 +7,7 @@ import type {
   LocalAiProviderId,
 } from '../types';
 
-export type FeedbackJudgement = 'correct' | 'incorrect' | 'missed';
+export type FeedbackJudgement = 'pending' | 'correct' | 'incorrect' | 'missed';
 
 /** Every category that can be retained in a feedback record. */
 export const FILTER_CATEGORIES = [
@@ -46,7 +46,7 @@ export interface FeedbackEntry {
   predictedCategory: FilterCategory;
   predictedScore: number;
   predictedAction: FilterAction;
-  correctCategory: FilterCategory;
+  correctCategory?: FilterCategory;
   judgement: FeedbackJudgement;
   source: DiagnosticSource;
   ruleIds: string[];
@@ -130,6 +130,7 @@ export interface RuleFeedbackStats {
 
 export interface FeedbackSummary {
   total: number;
+  pending: number;
   correct: number;
   incorrect: number;
   missed: number;
@@ -139,7 +140,7 @@ export interface CreateFeedbackEntryInput {
   diagnostic: DiagnosticEntry;
   normalizedText: string;
   judgement: FeedbackJudgement;
-  correctCategory: FilterCategory;
+  correctCategory?: FilterCategory;
   messageId?: string;
   conflictLevel?: number;
   createdAt?: number;
@@ -169,7 +170,7 @@ export function createFeedbackEntry({
     predictedCategory: diagnostic.category,
     predictedScore: diagnostic.score,
     predictedAction: diagnostic.action,
-    correctCategory,
+    ...(correctCategory !== undefined ? { correctCategory } : {}),
     judgement,
     source: diagnostic.source,
     ruleIds: [...(diagnostic.ruleIds ?? [])],
@@ -200,7 +201,9 @@ export function cloneFeedbackEntry(entry: FeedbackEntry): FeedbackEntry {
     predictedCategory: entry.predictedCategory,
     predictedScore: entry.predictedScore,
     predictedAction: entry.predictedAction,
-    correctCategory: entry.correctCategory,
+    ...(entry.correctCategory !== undefined
+      ? { correctCategory: entry.correctCategory }
+      : {}),
     judgement: entry.judgement,
     source: entry.source,
     ruleIds: [...entry.ruleIds],
@@ -221,6 +224,17 @@ export function cloneFeedbackEntry(entry: FeedbackEntry): FeedbackEntry {
       : {}),
     createdAt: entry.createdAt,
   };
+}
+
+export type CategorizedFeedbackEntry = FeedbackEntry & {
+  judgement: Exclude<FeedbackJudgement, 'pending'>;
+  correctCategory: FilterCategory;
+};
+
+export function isCategorizedFeedbackEntry(
+  entry: FeedbackEntry,
+): entry is CategorizedFeedbackEntry {
+  return entry.judgement !== 'pending' && entry.correctCategory !== undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

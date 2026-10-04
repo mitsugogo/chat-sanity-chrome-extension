@@ -21,6 +21,96 @@ function results(items: LmClassificationItem[]): LmClassificationResult[] {
 }
 
 describe('ClassificationBatchQueue', () => {
+  it('Chrome用の集約窓は満杯になっても短縮しない', async () => {
+    vi.useFakeTimers();
+    const classify = vi.fn(async (items: LmClassificationItem[]) =>
+      results(items),
+    );
+    const queue = new ClassificationBatchQueue(classify, {
+      windowMs: 500,
+      maxBatchSize: 2,
+      flushOnFull: false,
+      minRestMs: 500,
+    });
+    const pending = [
+      queue.enqueue({ id: '1', text: 'a' }),
+      queue.enqueue({ id: '2', text: 'b' }),
+    ];
+
+    await vi.advanceTimersByTimeAsync(499);
+    expect(classify).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(Promise.all(pending)).resolves.toHaveLength(2);
+    expect(classify).toHaveBeenCalledOnce();
+  });
+
+  it('遅い分類の完了後も休止し、満杯や明示flushで休止を飛ばさない', async () => {
+    vi.useFakeTimers();
+    let finishFirst: (value: LmClassificationResult[]) => void = () =>
+      undefined;
+    const classify = vi.fn((items: LmClassificationItem[]) =>
+      classify.mock.calls.length === 1
+        ? new Promise<LmClassificationResult[]>((resolve) => {
+            finishFirst = resolve;
+          })
+        : Promise.resolve(results(items)),
+    );
+    const queue = new ClassificationBatchQueue(classify, {
+      windowMs: 50,
+      maxBatchSize: 2,
+      minRestMs: 500,
+    });
+    const first = [
+      queue.enqueue({ id: '1', text: 'a' }),
+      queue.enqueue({ id: '2', text: 'b' }),
+    ];
+    await vi.advanceTimersByTimeAsync(1_000);
+    const second = [
+      queue.enqueue({ id: '3', text: 'c' }),
+      queue.enqueue({ id: '4', text: 'd' }),
+    ];
+    finishFirst(results(classify.mock.calls[0]?.[0] ?? []));
+    await Promise.all(first);
+    await queue.flush();
+    await vi.advanceTimersByTimeAsync(499);
+    expect(classify).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(Promise.all(second)).resolves.toHaveLength(2);
+    expect(classify).toHaveBeenCalledTimes(2);
+  });
+
+  it('休止中も待機上限と期限を守り、破棄後に分類を再開しない', async () => {
+    vi.useFakeTimers();
+    const classify = vi.fn(async (items: LmClassificationItem[]) =>
+      results(items),
+    );
+    const queue = new ClassificationBatchQueue(classify, {
+      maxBatchSize: 1,
+      minRestMs: 500,
+      maxQueueAgeMs: 100,
+    });
+    await queue.enqueue({ id: '1', text: 'a' });
+    const oldest = queue
+      .enqueue({ id: '2', text: 'b' })
+      .catch((error: unknown) => error);
+    const expired = queue
+      .enqueue({ id: '3', text: 'c' })
+      .catch((error: unknown) => error);
+    await expect(oldest).resolves.toMatchObject({ reason: 'overloaded' });
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(expired).resolves.toMatchObject({ reason: 'expired' });
+    expect(classify).toHaveBeenCalledOnce();
+
+    await queue.enqueue({ id: '4', text: 'd' });
+    const disposed = queue
+      .enqueue({ id: '5', text: 'e' })
+      .catch((error: unknown) => error);
+    queue.dispose();
+    await expect(disposed).resolves.toMatchObject({ reason: 'disposed' });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(classify).toHaveBeenCalledTimes(2);
+  });
+
   it('指定時間内の8件以下を1回のバッチへまとめる', async () => {
     vi.useFakeTimers();
     const classify = vi.fn(async (items: LmClassificationItem[]) =>

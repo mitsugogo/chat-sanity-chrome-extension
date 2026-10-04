@@ -8,7 +8,14 @@ import type {
   FeedbackSummary,
   RuleFeedbackStats,
 } from './types';
-import { cloneFeedbackEntry, isFeedbackExactMemory } from './types';
+import {
+  cloneFeedbackEntry,
+  FEEDBACK_CATEGORY_CHOICES,
+  isCategorizedFeedbackEntry,
+  isFeedbackExactMemory,
+  MISSED_CATEGORY_CHOICES,
+} from './types';
+import type { FilterCategory } from '../types';
 
 const DATABASE_NAME = 'chat-sanity-feedback';
 const DATABASE_VERSION = 1;
@@ -18,6 +25,13 @@ const RULE_STATS_STORE = 'ruleStats';
 
 export interface FeedbackStore {
   add(entry: FeedbackEntry): Promise<{
+    exactMemory?: FeedbackExactMemory;
+    feedbackStats: RuleFeedbackStats[];
+  }>;
+  categorize(
+    id: string,
+    correctCategory: FilterCategory,
+  ): Promise<{
     exactMemory: FeedbackExactMemory;
     feedbackStats: RuleFeedbackStats[];
   }>;
@@ -43,10 +57,20 @@ export class IndexedDbFeedbackStore implements FeedbackStore {
   ) {}
 
   add(entry: FeedbackEntry): Promise<{
-    exactMemory: FeedbackExactMemory;
+    exactMemory?: FeedbackExactMemory;
     feedbackStats: RuleFeedbackStats[];
   }> {
     return this.enqueueWrite(() => this.addNow(entry));
+  }
+
+  categorize(
+    id: string,
+    correctCategory: FilterCategory,
+  ): Promise<{
+    exactMemory: FeedbackExactMemory;
+    feedbackStats: RuleFeedbackStats[];
+  }> {
+    return this.enqueueWrite(() => this.categorizeNow(id, correctCategory));
   }
 
   async list(): Promise<FeedbackEntry[]> {
@@ -114,11 +138,18 @@ export class IndexedDbFeedbackStore implements FeedbackStore {
   }
 
   private async addNow(entry: FeedbackEntry): Promise<{
-    exactMemory: FeedbackExactMemory;
+    exactMemory?: FeedbackExactMemory;
     feedbackStats: RuleFeedbackStats[];
   }> {
     const feedback = cloneFeedbackEntry(entry);
     validateFeedbackEntry(feedback);
+    if (!isCategorizedFeedbackEntry(feedback)) {
+      const database = await this.database();
+      const transaction = database.transaction(FEEDBACK_STORE, 'readwrite');
+      transaction.objectStore(FEEDBACK_STORE).add(feedback);
+      await transactionDone(transaction);
+      return { feedbackStats: [] };
+    }
     const ruleIds = uniqueRuleIds(feedback);
     const [currentMemory, allStats] = await Promise.all([
       this.getExactMemory(feedback.normalizedText),
@@ -144,6 +175,60 @@ export class IndexedDbFeedbackStore implements FeedbackStore {
       exactMemory: structuredClone(nextMemory),
       feedbackStats: nextStats.map((stat) => structuredClone(stat)),
     };
+  }
+
+  private async categorizeNow(
+    id: string,
+    correctCategory: FilterCategory,
+  ): Promise<{
+    exactMemory: FeedbackExactMemory;
+    feedbackStats: RuleFeedbackStats[];
+  }> {
+    const existing = await this.getFeedbackEntry(id);
+    if (!existing) throw new Error('振り分け対象のNGが見つかりません。');
+    if (existing.judgement !== 'pending')
+      throw new Error('このNGはすでに振り分け済みです。');
+    validateCategorization(existing, correctCategory);
+    const feedback: FeedbackEntry = {
+      ...existing,
+      judgement: existing.predictedCategory === 'safe' ? 'missed' : 'incorrect',
+      correctCategory,
+    };
+    if (!isCategorizedFeedbackEntry(feedback))
+      throw new Error('NGの振り分け結果が不正です。');
+    const ruleIds = uniqueRuleIds(feedback);
+    const [currentMemory, allStats] = await Promise.all([
+      this.getExactMemory(feedback.normalizedText),
+      this.listRuleStats(),
+    ]);
+    const nextMemory = addToExactMemory(currentMemory, feedback);
+    const statsByRule = new Map(allStats.map((stat) => [stat.ruleId, stat]));
+    const nextStats = ruleIds.map((ruleId) =>
+      updateRuleFeedbackStats(statsByRule.get(ruleId), feedback, ruleId),
+    );
+    const database = await this.database();
+    const transaction = database.transaction(
+      [FEEDBACK_STORE, EXACT_MEMORY_STORE, RULE_STATS_STORE],
+      'readwrite',
+    );
+    transaction.objectStore(FEEDBACK_STORE).put(feedback);
+    transaction.objectStore(EXACT_MEMORY_STORE).put(nextMemory);
+    const statsStore = transaction.objectStore(RULE_STATS_STORE);
+    for (const stat of nextStats) statsStore.put(stat);
+    await transactionDone(transaction);
+    return {
+      exactMemory: structuredClone(nextMemory),
+      feedbackStats: nextStats.map((stat) => structuredClone(stat)),
+    };
+  }
+
+  private async getFeedbackEntry(
+    id: string,
+  ): Promise<FeedbackEntry | undefined> {
+    const value = await this.readStore(FEEDBACK_STORE, (store) =>
+      requestResult<FeedbackEntry | undefined>(store.get(id)),
+    );
+    return isFeedbackEntry(value) ? cloneFeedbackEntry(value) : undefined;
   }
 
   private async getExactMemory(
@@ -193,7 +278,7 @@ export class InMemoryFeedbackStore implements FeedbackStore {
   private readonly stats = new Map<string, RuleFeedbackStats>();
 
   async add(entry: FeedbackEntry): Promise<{
-    exactMemory: FeedbackExactMemory;
+    exactMemory?: FeedbackExactMemory;
     feedbackStats: RuleFeedbackStats[];
   }> {
     const feedback = cloneFeedbackEntry(entry);
@@ -201,6 +286,44 @@ export class InMemoryFeedbackStore implements FeedbackStore {
     if (this.entries.has(feedback.id))
       throw new Error('同じフィードバックIDは追加できません。');
     this.entries.set(feedback.id, feedback);
+    if (!isCategorizedFeedbackEntry(feedback)) return { feedbackStats: [] };
+    const nextMemory = addToExactMemory(
+      this.memories.get(feedback.normalizedText),
+      feedback,
+    );
+    this.memories.set(feedback.normalizedText, nextMemory);
+    const feedbackStats = uniqueRuleIds(feedback).map((ruleId) => {
+      const next = updateRuleFeedbackStats(
+        this.stats.get(ruleId),
+        feedback,
+        ruleId,
+      );
+      this.stats.set(ruleId, next);
+      return structuredClone(next);
+    });
+    return { exactMemory: structuredClone(nextMemory), feedbackStats };
+  }
+
+  async categorize(
+    id: string,
+    correctCategory: FilterCategory,
+  ): Promise<{
+    exactMemory: FeedbackExactMemory;
+    feedbackStats: RuleFeedbackStats[];
+  }> {
+    const existing = this.entries.get(id);
+    if (!existing) throw new Error('振り分け対象のNGが見つかりません。');
+    if (existing.judgement !== 'pending')
+      throw new Error('このNGはすでに振り分け済みです。');
+    validateCategorization(existing, correctCategory);
+    const feedback: FeedbackEntry = {
+      ...existing,
+      judgement: existing.predictedCategory === 'safe' ? 'missed' : 'incorrect',
+      correctCategory,
+    };
+    if (!isCategorizedFeedbackEntry(feedback))
+      throw new Error('NGの振り分け結果が不正です。');
+    this.entries.set(id, feedback);
     const nextMemory = addToExactMemory(
       this.memories.get(feedback.normalizedText),
       feedback,
@@ -326,6 +449,18 @@ function validateFeedbackEntry(entry: FeedbackEntry): void {
     throw new Error('コメント本文が空のため保存できません。');
   if (entry.predictedScore < 0 || entry.predictedScore > 1)
     throw new Error('判定スコアが範囲外です。');
+}
+
+function validateCategorization(
+  entry: FeedbackEntry,
+  correctCategory: FilterCategory,
+): void {
+  const choices =
+    entry.predictedCategory === 'safe'
+      ? MISSED_CATEGORY_CHOICES
+      : FEEDBACK_CATEGORY_CHOICES;
+  if (!choices.some((category) => category === correctCategory))
+    throw new Error('選択したカテゴリではNGを振り分けできません。');
 }
 
 function isRuleFeedbackStats(value: unknown): value is RuleFeedbackStats {

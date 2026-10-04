@@ -7,6 +7,7 @@ import { normalizeText } from '../../lib/filter/normalize';
 import {
   createFeedbackEntry,
   FEEDBACK_CATEGORY_CHOICES,
+  MISSED_CATEGORY_CHOICES,
   type FeedbackEntry,
   type FeedbackJudgement,
   type ExactFeedbackResult,
@@ -217,6 +218,20 @@ export default function App() {
         throw new Error(
           response.error || 'フィードバックを保存できませんでした。',
         );
+      await refreshFeedback();
+    },
+    [refreshFeedback],
+  );
+
+  const categorizeFeedback = useCallback(
+    async (id: string, correctCategory: FilterCategory) => {
+      const response = (await browser.runtime.sendMessage({
+        type: 'feedback:categorize',
+        id,
+        correctCategory,
+      } satisfies RuntimeMessage)) as RuntimeResponse;
+      if (!response.ok)
+        throw new Error(response.error || 'NGを振り分けできませんでした。');
       await refreshFeedback();
     },
     [refreshFeedback],
@@ -659,9 +674,7 @@ export default function App() {
               <div className="spam-setting">
                 <span>
                   <strong>デバッグモード</strong>
-                  <small>
-                    保存後、チャットにスコアとAI検閲中ラベルを表示します
-                  </small>
+                  <small>保存後、チャットにスコアとNGボタンを表示します</small>
                 </span>
                 <Switch
                   checked={settings.debugMode}
@@ -1110,7 +1123,7 @@ export default function App() {
                     <span className="setting-row__copy">
                       <strong>ルール未一致をすべてAIで確認</strong>
                       <small>
-                        抽選と監査上限を使わず全件を送ります。混雑時は古い待機コメントをルール判定へ戻します
+                        抽選と監査上限を使わず全件を送ります。Chrome内蔵AIでは500ms単位でまとめ、異常時は5分間停止します
                       </small>
                     </span>
                     <Switch
@@ -1205,6 +1218,7 @@ export default function App() {
           error={feedbackError}
           loading={feedbackLoading}
           onRefresh={() => void refreshFeedback()}
+          onCategorize={categorizeFeedback}
           onExport={() => void exportFeedback()}
           onClear={() => void clearFeedback()}
         />
@@ -1596,6 +1610,7 @@ function FeedbackPanel({
   error,
   loading,
   onRefresh,
+  onCategorize,
   onExport,
   onClear,
 }: {
@@ -1605,6 +1620,7 @@ function FeedbackPanel({
   error: string;
   loading: boolean;
   onRefresh: () => void;
+  onCategorize: (id: string, category: FilterCategory) => Promise<void>;
   onExport: () => void;
   onClear: () => void;
 }) {
@@ -1612,13 +1628,24 @@ function FeedbackPanel({
   const [category, setCategory] = useState<FilterCategory | 'all'>('all');
   const [ruleId, setRuleId] = useState('all');
   const [source, setSource] = useState<FeedbackEntry['source'] | 'all'>('all');
-  const ruleIds = useMemo(
-    () => Array.from(new Set(entries.flatMap((entry) => entry.ruleIds))).sort(),
+  const pendingEntries = useMemo(
+    () => entries.filter((entry) => entry.judgement === 'pending'),
     [entries],
+  );
+  const categorizedEntries = useMemo(
+    () => entries.filter((entry) => entry.judgement !== 'pending'),
+    [entries],
+  );
+  const ruleIds = useMemo(
+    () =>
+      Array.from(
+        new Set(categorizedEntries.flatMap((entry) => entry.ruleIds)),
+      ).sort(),
+    [categorizedEntries],
   );
   const filteredEntries = useMemo(
     () =>
-      entries.filter((entry) => {
+      categorizedEntries.filter((entry) => {
         if (kind !== 'all' && entry.judgement !== kind) return false;
         if (
           category !== 'all' &&
@@ -1629,7 +1656,7 @@ function FeedbackPanel({
         if (ruleId !== 'all' && !entry.ruleIds.includes(ruleId)) return false;
         return source === 'all' || entry.source === source;
       }),
-    [category, entries, kind, ruleId, source],
+    [categorizedEntries, category, kind, ruleId, source],
   );
 
   return (
@@ -1638,7 +1665,7 @@ function FeedbackPanel({
         <div>
           <h2>フィードバック</h2>
           <p>
-            訂正した判定を確認し、同一の正規化本文だけを次回の判定へ反映します。
+            チャットで記録したNGを後から振り分け、同一の正規化本文だけを次回の判定へ反映します。
           </p>
         </div>
         <div className="feedback-actions">
@@ -1659,7 +1686,8 @@ function FeedbackPanel({
       </div>
       {summary ? (
         <div className="feedback-summary" aria-label="フィードバック集計">
-          <span>評価済 {summary.total}</span>
+          <span>記録 {summary.total}</span>
+          <span>未分類 {summary.pending}</span>
           <span>正しい {summary.correct}</span>
           <span>誤判定 {summary.incorrect}</span>
           <span>見逃し {summary.missed}</span>
@@ -1674,6 +1702,32 @@ function FeedbackPanel({
         </p>
       ) : (
         <>
+          <section
+            className="pending-feedback"
+            aria-labelledby="pending-ng-title"
+          >
+            <div className="pending-feedback-heading">
+              <h3 id="pending-ng-title">未分類NG</h3>
+              <span>{pendingEntries.length}件</span>
+            </div>
+            {pendingEntries.length === 0 ? (
+              <p className="empty-diagnostic">振り分け待ちのNGはありません。</p>
+            ) : (
+              <ol className="feedback-list" aria-label="未分類NG一覧">
+                {pendingEntries.map((entry) => (
+                  <PendingFeedbackItem
+                    key={entry.id}
+                    entry={entry}
+                    onCategorize={onCategorize}
+                  />
+                ))}
+              </ol>
+            )}
+          </section>
+          <div className="pending-feedback-heading">
+            <h3>振り分け済み</h3>
+            <span>{categorizedEntries.length}件</span>
+          </div>
           <div
             className="feedback-filters"
             aria-label="フィードバックの絞り込み"
@@ -1753,8 +1807,10 @@ function FeedbackPanel({
           </div>
           {filteredEntries.length === 0 ? (
             <p className="empty-diagnostic">
-              {entries.length === 0
-                ? 'まだフィードバックはありません。診断結果またはデバッグ中のチャットから記録できます。'
+              {categorizedEntries.length === 0
+                ? entries.length === 0
+                  ? 'まだフィードバックはありません。診断結果またはデバッグ中のチャットから記録できます。'
+                  : '振り分け済みのフィードバックはありません。'
                 : '条件に一致するフィードバックはありません。'}
             </p>
           ) : (
@@ -1773,7 +1829,9 @@ function FeedbackPanel({
                     {categoryLabel(entry.predictedCategory)}{' '}
                     {entry.predictedScore.toFixed(2)}（
                     {ACTION_LABELS[entry.predictedAction]}） →{' '}
-                    {categoryLabel(entry.correctCategory)}
+                    {entry.correctCategory
+                      ? categoryLabel(entry.correctCategory)
+                      : '未分類'}
                   </p>
                   {entry.ruleIds.length > 0 ? (
                     <p className="debug-history-features">
@@ -1811,6 +1869,91 @@ function FeedbackPanel({
         )}
       </div>
     </section>
+  );
+}
+
+function PendingFeedbackItem({
+  entry,
+  onCategorize,
+}: {
+  entry: FeedbackEntry;
+  onCategorize: (id: string, category: FilterCategory) => Promise<void>;
+}) {
+  const [selectedCategory, setSelectedCategory] = useState<FilterCategory | ''>(
+    '',
+  );
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState('');
+  const choices =
+    entry.predictedCategory === 'safe'
+      ? MISSED_CATEGORY_CHOICES
+      : FEEDBACK_CATEGORY_CHOICES;
+
+  const categorize = async () => {
+    if (!selectedCategory) return;
+    setSaving(true);
+    setStatus('');
+    try {
+      await onCategorize(entry.id, selectedCategory);
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : 'NGを振り分けできませんでした。',
+      );
+      setSaving(false);
+    }
+  };
+
+  return (
+    <li>
+      <div className="feedback-list-meta">
+        <strong>未分類</strong>
+        <span>{sourceLabel(entry.source, entry.aiReason)}</span>
+        <time dateTime={new Date(entry.createdAt).toISOString()}>
+          {new Date(entry.createdAt).toLocaleString('ja-JP')}
+        </time>
+      </div>
+      <p className="feedback-list-text">{entry.text}</p>
+      <p className="feedback-list-result">
+        現在の判定: {categoryLabel(entry.predictedCategory)}{' '}
+        {entry.predictedScore.toFixed(2)}（
+        {ACTION_LABELS[entry.predictedAction]}）
+      </p>
+      <div className="pending-feedback-controls">
+        <label>
+          カテゴリ
+          <select
+            aria-label={`「${entry.text}」のNGカテゴリ`}
+            value={selectedCategory}
+            disabled={saving}
+            onChange={(event) => {
+              const value = event.target.value;
+              setSelectedCategory(isFeedbackCategory(value) ? value : '');
+            }}
+          >
+            <option value="">選択してください</option>
+            {choices.map((choice) => (
+              <option key={choice} value={choice}>
+                {categoryLabel(choice)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          disabled={saving || !selectedCategory}
+          onClick={() => void categorize()}
+        >
+          {saving ? '保存中…' : '振り分ける'}
+        </button>
+      </div>
+      {status ? (
+        <p className="feedback-error" role="alert">
+          {status}
+        </p>
+      ) : null}
+    </li>
   );
 }
 
@@ -1973,6 +2116,7 @@ function sourceLabel(
 }
 
 function feedbackJudgementLabel(judgement: FeedbackJudgement): string {
+  if (judgement === 'pending') return '未分類';
   if (judgement === 'correct') return '正しい';
   if (judgement === 'missed') return '見逃し';
   return '誤判定';

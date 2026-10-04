@@ -9,6 +9,7 @@ const FILTER_ACTIONS: readonly FilterAction[] = [
   'hide',
 ];
 const JUDGEMENTS: readonly FeedbackJudgement[] = [
+  'pending',
   'correct',
   'incorrect',
   'missed',
@@ -54,7 +55,8 @@ export function isFeedbackEntry(value: unknown): value is FeedbackEntry {
     isCategory(value.predictedCategory) &&
     isFiniteNumber(value.predictedScore) &&
     isAction(value.predictedAction) &&
-    isCategory(value.correctCategory) &&
+    ((value.judgement === 'pending' && value.correctCategory === undefined) ||
+      (value.judgement !== 'pending' && isCategory(value.correctCategory))) &&
     isJudgement(value.judgement) &&
     isSource(value.source) &&
     isStringArray(value.ruleIds) &&

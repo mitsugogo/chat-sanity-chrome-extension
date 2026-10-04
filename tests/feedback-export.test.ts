@@ -34,13 +34,26 @@ const entries: FeedbackEntry[] = [
     features: [],
     createdAt: 2,
   },
+  {
+    id: 'feedback-3',
+    text: 'あとで確認するNG',
+    normalizedText: 'あとで確認するng',
+    predictedCategory: 'safe',
+    predictedScore: 0,
+    predictedAction: 'allow',
+    judgement: 'pending',
+    source: 'rules',
+    ruleIds: [],
+    features: [],
+    createdAt: 3,
+  },
 ];
 
 describe('feedback JSONL export', () => {
   it('Unicodeと本文内改行を壊さず1行1JSONへ出力する', () => {
     const jsonl = feedbackEntriesToJsonl(entries);
 
-    expect(jsonl.split('\n')).toHaveLength(2);
+    expect(jsonl.split('\n')).toHaveLength(3);
     expect(jsonl).toContain('ぺこらのせいだろ');
     expect(jsonl).toContain('\\n');
   });

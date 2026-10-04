@@ -42,7 +42,13 @@ beforeEach(() => {
       return {
         ok: true,
         feedbackStats: [],
-        feedbackSummary: { total: 0, correct: 0, incorrect: 0, missed: 0 },
+        feedbackSummary: {
+          total: 0,
+          pending: 0,
+          correct: 0,
+          incorrect: 0,
+          missed: 0,
+        },
       };
     if (message.type === 'feedback:lookup-exact')
       return { ok: true, exactFeedback: null };
@@ -121,7 +127,7 @@ describe('options', () => {
     ).toHaveClass('setting-row__copy');
     expect(
       screen.getByText(
-        '抽選と監査上限を使わず全件を送ります。混雑時は古い待機コメントをルール判定へ戻します',
+        '抽選と監査上限を使わず全件を送ります。Chrome内蔵AIでは500ms単位でまとめ、異常時は5分間停止します',
       ).parentElement,
     ).toHaveClass('setting-row__copy');
     fireEvent.click(moderatorStickySwitch);
@@ -194,6 +200,81 @@ describe('options', () => {
     expect(
       within(result).getByText('フィードバックを記録しました。'),
     ).toBeInTheDocument();
+  });
+
+  it('チャットで記録した未分類NGを詳細設定から振り分ける', async () => {
+    let categorized = false;
+    const pendingEntry = {
+      id: 'pending-1',
+      text: 'それは違うだろ',
+      normalizedText: 'それは違うだろ',
+      predictedCategory: 'safe' as const,
+      predictedScore: 0.2,
+      predictedAction: 'allow' as const,
+      judgement: 'pending' as const,
+      source: 'rules' as const,
+      ruleIds: [],
+      features: [],
+      createdAt: 1,
+    };
+    mocks.sendMessage.mockImplementation(async (message: RuntimeMessage) => {
+      if (message.type === 'debug:get') return { ok: true, entries: [] };
+      if (message.type === 'feedback:list')
+        return {
+          ok: true,
+          feedbackEntries: categorized
+            ? [
+                {
+                  ...pendingEntry,
+                  judgement: 'missed',
+                  correctCategory: 'blame',
+                },
+              ]
+            : [pendingEntry],
+        };
+      if (message.type === 'feedback:stats')
+        return {
+          ok: true,
+          feedbackStats: [],
+          feedbackSummary: {
+            total: 1,
+            pending: categorized ? 0 : 1,
+            correct: 0,
+            incorrect: 0,
+            missed: categorized ? 1 : 0,
+          },
+        };
+      if (message.type === 'feedback:categorize') {
+        categorized = true;
+        return { ok: true };
+      }
+      if (message.type === 'feedback:lookup-exact')
+        return { ok: true, exactFeedback: null };
+      return { ok: true, models: ['qwen3-8b'] };
+    });
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', { name: '未分類NG' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('それは違うだろ')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('「それは違うだろ」のNGカテゴリ'), {
+      target: { value: 'blame' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '振り分ける' }));
+
+    await waitFor(() =>
+      expect(mocks.sendMessage).toHaveBeenCalledWith({
+        type: 'feedback:categorize',
+        id: 'pending-1',
+        correctCategory: 'blame',
+      }),
+    );
+    expect(
+      await screen.findByText('振り分け待ちのNGはありません。'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('見逃し')).toBeInTheDocument();
   });
 
   it('デバッグモードの履歴と理由を表示して消去できる', async () => {

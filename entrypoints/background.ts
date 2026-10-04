@@ -240,6 +240,27 @@ export default defineBackground(() => {
       return feedbackStore
         .add(request.entry)
         .then<RuntimeResponse>(({ exactMemory, feedbackStats }) => {
+          if (exactMemory)
+            publishFeedbackMemory({ kind: 'update', memory: exactMemory });
+          return {
+            ok: true,
+            ...(exactMemory ? { exactMemory } : {}),
+            feedbackStats,
+          };
+        })
+        .catch<RuntimeResponse>((error: unknown) => ({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'フィードバックを保存できませんでした。',
+        }));
+    }
+
+    if (request.type === 'feedback:categorize') {
+      return feedbackStore
+        .categorize(request.id, request.correctCategory)
+        .then<RuntimeResponse>(({ exactMemory, feedbackStats }) => {
           publishFeedbackMemory({ kind: 'update', memory: exactMemory });
           return { ok: true, exactMemory, feedbackStats };
         })
@@ -248,7 +269,7 @@ export default defineBackground(() => {
           error:
             error instanceof Error
               ? error.message
-              : 'フィードバックを保存できませんでした。',
+              : 'NGを振り分けできませんでした。',
         }));
     }
 

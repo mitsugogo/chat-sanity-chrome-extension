@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CHROME_BUILT_IN_ALL_UNMATCHED_BATCH_WINDOW_MS,
+  CHROME_BUILT_IN_BATCH_WINDOW_MS,
   CHROME_BUILT_IN_MAX_BATCH_SIZE,
+  CHROME_BUILT_IN_MIN_REST_MS,
   LOCAL_AI_MAX_PENDING_BATCHES,
   LOCAL_AI_MAX_QUEUE_AGE_MS,
   resolveLocalAiLoadPolicy,
@@ -17,9 +20,12 @@ describe('resolveLocalAiLoadPolicy', () => {
       const policy = resolveLocalAiLoadPolicy(settings);
 
       expect(policy).toEqual({
+        batchWindowMs: CHROME_BUILT_IN_BATCH_WINDOW_MS,
         maxBatchSize: CHROME_BUILT_IN_MAX_BATCH_SIZE,
         maxPendingBatches: LOCAL_AI_MAX_PENDING_BATCHES,
         maxQueueAgeMs: LOCAL_AI_MAX_QUEUE_AGE_MS,
+        flushOnFull: false,
+        minRestMs: CHROME_BUILT_IN_MIN_REST_MS,
         zeroScoreAudit: {
           baseProbability: 0.01,
           maxPerMinute: 3,
@@ -33,14 +39,28 @@ describe('resolveLocalAiLoadPolicy', () => {
     const settings = structuredClone(DEFAULT_SETTINGS);
     settings.localAiMode = 'lm-studio';
     settings.lmStudio.batchSize = 17;
+    settings.lmStudio.batchWindowMs = 480;
     const policy = resolveLocalAiLoadPolicy(settings);
 
+    expect(policy.batchWindowMs).toBe(480);
     expect(policy.maxBatchSize).toBe(17);
+    expect(policy.flushOnFull).toBe(true);
+    expect(policy.minRestMs).toBe(0);
     expect(policy.zeroScoreAudit).toEqual({
       baseProbability: settings.lmStudio.zeroScoreAudit.baseProbability,
       maxPerMinute: settings.lmStudio.zeroScoreAudit.maxPerMinute,
       maxPending: settings.lmStudio.zeroScoreAudit.maxPending,
     });
+  });
+
+  it('Chrome優先の全件AIチェックは500ms単位でまとめる', () => {
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.localAiMode = 'auto';
+    settings.lmStudio.zeroScoreAudit.checkAllUnmatched = true;
+
+    expect(resolveLocalAiLoadPolicy(settings).batchWindowMs).toBe(
+      CHROME_BUILT_IN_ALL_UNMATCHED_BATCH_WINDOW_MS,
+    );
   });
 
   it('Chrome向け制限はユーザーのより厳しい値を緩めない', () => {

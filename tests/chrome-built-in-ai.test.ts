@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  CHROME_BUILT_IN_FAILURE_COOLDOWN_MS,
   ChromeBuiltInAiProvider,
   MODEL_OPTIONS,
   getChromeBuiltInAvailability,
   prepareChromeBuiltInAi,
 } from '../lib/local-ai/providers/chrome-built-in';
+import { CHROME_CLASSIFICATION_SYSTEM_PROMPT } from '../lib/local-ai/prompt';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -13,9 +15,7 @@ afterEach(() => {
 
 function createSessions(
   result = {
-    results: [
-      { id: 'one', category: 'backseat', action: 'blur', confidence: 0.9 },
-    ],
+    results: [{ id: 'one', category: 'backseat', confidence: 0.9 }],
   },
 ) {
   const batch = {
@@ -40,6 +40,7 @@ describe('ChromeBuiltInAiProvider', () => {
     vi.stubGlobal('LanguageModel', { availability, create: vi.fn() });
     await expect(getChromeBuiltInAvailability()).resolves.toBe('downloadable');
     expect(availability).toHaveBeenCalledWith(MODEL_OPTIONS);
+    expect(MODEL_OPTIONS).toMatchObject({ topK: 1, temperature: 0 });
   });
 
   it('base sessionを再利用しbatchごとにcloneして必ず破棄する', async () => {
@@ -57,6 +58,12 @@ describe('ChromeBuiltInAiProvider', () => {
     ]);
     await provider.classify([{ id: 'one', text: '進んだら？' }]);
     expect(create).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledWith({
+      ...MODEL_OPTIONS,
+      initialPrompts: [
+        { role: 'system', content: CHROME_CLASSIFICATION_SYSTEM_PROMPT },
+      ],
+    });
     expect(base.clone).toHaveBeenCalledTimes(2);
     expect(base.clone.mock.calls.every((call) => call.length === 0)).toBe(true);
     expect(batch.destroy).toHaveBeenCalledTimes(2);
@@ -64,6 +71,16 @@ describe('ChromeBuiltInAiProvider', () => {
       omitResponseConstraintInput: true,
       responseConstraint: { type: 'object' },
     });
+    const promptOptions = batch.prompt.mock.calls[0]?.[1] as {
+      responseConstraint?: {
+        properties?: {
+          results?: { items?: { properties?: Record<string, unknown> } };
+        };
+      };
+    };
+    expect(
+      promptOptions.responseConstraint?.properties?.results?.items?.properties,
+    ).not.toHaveProperty('action');
     provider.dispose();
     expect(base.destroy).toHaveBeenCalledOnce();
   });
@@ -172,16 +189,12 @@ describe('ChromeBuiltInAiProvider', () => {
     expect(batch.destroy).toHaveBeenCalledOnce();
   });
 
-  it('AbortErrorならsessionを作り直して1回再試行する', async () => {
-    const first = createSessions();
-    const second = createSessions();
-    first.base.clone.mockRejectedValueOnce(
+  it('AbortErrorを同じバッチで再試行せずbase sessionを破棄する', async () => {
+    const { base } = createSessions();
+    base.clone.mockRejectedValueOnce(
       new DOMException('signal is aborted without reason', 'AbortError'),
     );
-    const create = vi
-      .fn()
-      .mockResolvedValueOnce(first.base)
-      .mockResolvedValueOnce(second.base);
+    const create = vi.fn(async () => base);
     vi.stubGlobal('LanguageModel', {
       availability: vi.fn(async () => 'available'),
       create,
@@ -190,27 +203,51 @@ describe('ChromeBuiltInAiProvider', () => {
       new ChromeBuiltInAiProvider().classify([
         { id: 'one', text: '進んだら？' },
       ]),
-    ).resolves.toEqual([
-      { id: 'one', category: 'backseat', action: 'blur', confidence: 0.9 },
-    ]);
-    expect(create).toHaveBeenCalledTimes(2);
-    expect(first.base.destroy).toHaveBeenCalledOnce();
-    expect(second.batch.prompt).toHaveBeenCalledOnce();
-    expect(second.batch.destroy).toHaveBeenCalledOnce();
+    ).rejects.toThrow('中断');
+    expect(create).toHaveBeenCalledOnce();
+    expect(base.clone).toHaveBeenCalledOnce();
+    expect(base.destroy).toHaveBeenCalledOnce();
   });
 
-  it('再試行後も中断されたら日本語エラーにする', async () => {
-    const { base } = createSessions();
-    base.clone.mockRejectedValue(
-      new DOMException('signal is aborted without reason', 'AbortError'),
+  it('1回失敗したら5分間停止し待機済み分類もPrompt APIへ送らない', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const first = createSessions();
+    const recovered = createSessions();
+    first.batch.prompt.mockRejectedValueOnce(
+      new DOMException(
+        'An unknown error occurred: kErrorUnknown',
+        'UnknownError',
+      ),
     );
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce(first.base)
+      .mockResolvedValueOnce(recovered.base);
+    const availability = vi.fn(async () => 'available');
     vi.stubGlobal('LanguageModel', {
-      availability: vi.fn(async () => 'available'),
-      create: vi.fn(async () => base),
+      availability,
+      create,
     });
+    const provider = new ChromeBuiltInAiProvider();
+    const firstRequest = provider.classify([{ id: 'one', text: 'test' }]);
+    const queuedRequest = provider.classify([{ id: 'two', text: 'test2' }]);
+    const firstAssertion =
+      expect(firstRequest).rejects.toThrow('kErrorUnknown');
+    const queuedAssertion = expect(queuedRequest).rejects.toThrow('5分間');
+
+    await firstAssertion;
+    await queuedAssertion;
+    await expect(provider.getAvailability()).resolves.toBe('unavailable');
+    expect(create).toHaveBeenCalledOnce();
+    expect(availability).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(CHROME_BUILT_IN_FAILURE_COOLDOWN_MS);
+    await expect(provider.getAvailability()).resolves.toBe('available');
     await expect(
-      new ChromeBuiltInAiProvider().classify([{ id: 'one', text: 'test' }]),
-    ).rejects.toThrow('中断');
+      provider.classify([{ id: 'one', text: '回復確認' }]),
+    ).resolves.toHaveLength(1);
+    expect(create).toHaveBeenCalledTimes(2);
   });
 
   it('同時分類を直列化しpromptを重ねない', async () => {

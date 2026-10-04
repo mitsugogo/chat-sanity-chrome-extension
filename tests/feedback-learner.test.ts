@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeText } from '../lib/filter/normalize';
+import type { FilterCategory } from '../lib/types';
 import {
   addToExactMemory,
   exactFeedbackScore,
@@ -13,7 +14,7 @@ import {
 } from '../lib/feedback/types';
 
 function entry(
-  correctCategory: FeedbackEntry['correctCategory'],
+  correctCategory: FilterCategory,
   text = 'いけー！',
   id = 'feedback-1',
 ): FeedbackEntry {

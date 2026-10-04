@@ -1,9 +1,4 @@
 import { CATEGORY_LABELS } from '../settings';
-import {
-  FEEDBACK_CATEGORY_CHOICES,
-  MISSED_CATEGORY_CHOICES,
-  type FeedbackJudgement,
-} from '../feedback/types';
 import type { DiagnosticEntry, FilterCategory, FilterResult } from '../types';
 
 const MANAGED_CLASSES = [
@@ -17,13 +12,9 @@ const MODERATOR_STICKY_CLASS = 'chatsanity-moderator-sticky';
 const LATEST_MODERATOR_STICKY_CLASS = 'chatsanity-moderator-sticky-latest';
 const MODERATOR_STICKY_ACTIVE_ROOT_CLASS = 'chatsanity-moderator-sticky-active';
 const REVEAL_HANDLERS = new WeakMap<HTMLElement, () => void>();
-let feedbackControlSequence = 0;
 
 export interface InlineFeedbackHandlers {
-  onSubmit: (
-    judgement: FeedbackJudgement,
-    correctCategory: FilterCategory,
-  ) => Promise<void>;
+  onSubmit: () => Promise<void>;
 }
 
 export function renderModeratorSticky(
@@ -75,7 +66,6 @@ export function resetRenderedItem(element: HTMLElement): void {
   element.removeAttribute('data-chatsanity-action');
   element.querySelector('.chatsanity-placeholder')?.remove();
   element.querySelector('.chatsanity-debug-score')?.remove();
-  element.querySelector('.chatsanity-ai-status')?.remove();
   element.querySelector('.chatsanity-feedback-controls')?.remove();
   const message = element.querySelector<HTMLElement>('#message');
   if (message) clearRevealHandler(message);
@@ -83,15 +73,13 @@ export function resetRenderedItem(element: HTMLElement): void {
   message?.removeAttribute('aria-label');
 }
 
-export function renderPending(element: HTMLElement, debugMode = false): void {
+export function renderPending(element: HTMLElement): void {
   resetRenderedItem(element);
   element.classList.add('chatsanity-pending');
   element.setAttribute('data-chatsanity-action', 'pending');
   element
     .querySelector<HTMLElement>('#message')
     ?.setAttribute('aria-label', '...');
-  if (debugMode)
-    element.append(createDebugLabel('AI検閲中', 'chatsanity-ai-status'));
 }
 
 export function renderResult(
@@ -99,7 +87,6 @@ export function renderResult(
   result: FilterResult,
   diagnostic?: DiagnosticEntry,
   debugMode = false,
-  aiPending = false,
   feedbackHandlers?: InlineFeedbackHandlers,
 ): void {
   resetRenderedItem(element);
@@ -108,10 +95,8 @@ export function renderResult(
     element.append(
       createDebugLabel(result.score.toFixed(2), 'chatsanity-debug-score'),
     );
-    if (aiPending)
-      element.append(createDebugLabel('AI検閲中', 'chatsanity-ai-status'));
     if (diagnostic && feedbackHandlers)
-      element.append(createFeedbackControls(diagnostic, feedbackHandlers));
+      element.append(createFeedbackControls(feedbackHandlers));
   }
   if (result.action === 'allow') return;
 
@@ -170,119 +155,41 @@ function createDebugLabel(label: string, className: string): HTMLSpanElement {
   const span = document.createElement('span');
   span.className = className;
   span.textContent = label;
-  span.setAttribute(
-    'aria-label',
-    label === 'AI検閲中' ? label : `判定スコア ${label}`,
-  );
+  span.setAttribute('aria-label', `判定スコア ${label}`);
   return span;
 }
 
-function createFeedbackControls(
-  diagnostic: DiagnosticEntry,
-  handlers: InlineFeedbackHandlers,
-): HTMLElement {
+function createFeedbackControls(handlers: InlineFeedbackHandlers): HTMLElement {
   const controls = document.createElement('div');
   controls.className = 'chatsanity-feedback-controls';
   controls.setAttribute('aria-label', '判定フィードバック');
 
   const report = createFeedbackButton('NG');
-  report.setAttribute(
-    'aria-label',
-    diagnostic.category === 'safe' ? '問題コメントとして報告' : '判定を訂正',
-  );
+  report.setAttribute('aria-label', 'NGとして記録');
   report.title = report.getAttribute('aria-label') ?? '';
   report.addEventListener('click', () => {
-    // A category can be deliberately displayed by a preset even though the
-    // classifier found a problem. Only a safe prediction is a false-negative
-    // candidate; every other category must keep the correction flow.
-    if (diagnostic.category === 'safe') {
-      showCategoryChooser(
-        controls,
-        handlers,
-        'missed',
-        '問題カテゴリ',
-        MISSED_CATEGORY_CHOICES,
-      );
-    } else {
-      showCategoryChooser(
-        controls,
-        handlers,
-        'incorrect',
-        '本来のカテゴリ',
-        FEEDBACK_CATEGORY_CHOICES,
-      );
-    }
+    void submitFeedback(controls, handlers);
   });
   controls.append(report);
   return controls;
 }
 
-function showCategoryChooser(
-  controls: HTMLElement,
-  handlers: InlineFeedbackHandlers,
-  judgement: Extract<FeedbackJudgement, 'incorrect' | 'missed'>,
-  legendText: string,
-  categories: readonly FilterCategory[],
-): void {
-  const existing = controls.querySelector('.chatsanity-feedback-chooser');
-  if (existing) {
-    existing.remove();
-    return;
-  }
-  const chooser = document.createElement('fieldset');
-  chooser.className = 'chatsanity-feedback-chooser';
-  const legend = document.createElement('legend');
-  legend.textContent = legendText;
-  chooser.append(legend);
-
-  const name = `chatsanity-feedback-category-${feedbackControlSequence++}`;
-  let selectedCategory: FilterCategory | undefined;
-  const submit = createFeedbackButton('このカテゴリで記録');
-  submit.disabled = true;
-  for (const category of categories) {
-    const id = `${name}-${category}`;
-    const label = document.createElement('label');
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = name;
-    input.id = id;
-    input.value = category;
-    input.addEventListener('change', () => {
-      selectedCategory = category;
-      submit.disabled = false;
-    });
-    const text = document.createElement('span');
-    text.textContent = categoryLabel(category);
-    label.htmlFor = id;
-    label.append(input, text);
-    chooser.append(label);
-  }
-  submit.addEventListener('click', () => {
-    if (!selectedCategory) return;
-    void submitFeedback(controls, handlers, judgement, selectedCategory);
-  });
-  chooser.append(submit);
-  controls.append(chooser);
-}
-
 async function submitFeedback(
   controls: HTMLElement,
   handlers: InlineFeedbackHandlers,
-  judgement: FeedbackJudgement,
-  correctCategory: FilterCategory,
 ): Promise<void> {
   const buttons = controls.querySelectorAll<HTMLButtonElement>('button');
   buttons.forEach((button) => {
     button.disabled = true;
   });
   try {
-    await handlers.onSubmit(judgement, correctCategory);
+    await handlers.onSubmit();
     controls.replaceChildren();
     const status = document.createElement('span');
     status.className = 'chatsanity-feedback-status';
     status.textContent = '✓';
-    status.title = 'フィードバックを記録しました';
-    status.setAttribute('aria-label', 'フィードバックを記録しました');
+    status.title = 'NGを記録しました';
+    status.setAttribute('aria-label', 'NGを記録しました');
     status.setAttribute('role', 'status');
     controls.append(status);
   } catch {
